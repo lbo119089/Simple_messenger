@@ -47,7 +47,6 @@ export function ChatSidebar({
   const [editAvatar, setEditAvatar] = useState("");
   const [isUpdating, setIsUpdating] = useState(false);
 
-  // 그룹 생성 관련 상태
   const [groupName, setGroupName] = useState("");
   const [selectedFriendsForGroup, setSelectedFriendsForGroup] = useState<string[]>([]);
   const [isCreatingGroup, setIsCreatingGroup] = useState(false);
@@ -55,14 +54,12 @@ export function ChatSidebar({
   const db = useFirestore();
   const { toast } = useToast();
 
-  // 모든 메시지 수신 (읽지 않은 수 계산용)
   const messagesQuery = useMemoFirebase(() => {
     if (!db || !currentUserId) return null;
     return query(collection(db, "messages"), where("participants", "array-contains", currentUserId));
   }, [db, currentUserId]);
   const { data: allRelevantMessages } = useCollection(messagesQuery);
 
-  // 사용자의 읽음 상태 정보 수신
   const readStatusQuery = useMemoFirebase(() => {
     if (!db || !currentUserId) return null;
     return query(collection(db, "users", currentUserId, "readStatus"));
@@ -73,21 +70,24 @@ export function ChatSidebar({
     if (!allRelevantMessages || !currentUserId) return {};
     
     const counts: Record<string, number> = {};
-    const readMap: Record<string, any> = {};
+    const readMap: Record<string, number> = {};
+    
     readStatuses?.forEach(status => {
-      readMap[status.id] = status.lastReadAt?.toMillis() || 0;
+      readMap[status.id] = status.lastReadAt?.toMillis?.() || (status.lastReadAt?.seconds ? status.lastReadAt.seconds * 1000 : 0);
     });
 
     allRelevantMessages.forEach((msg: any) => {
+      // 본인이 보낸 메시지는 카운트 제외
       if (msg.senderId === currentUserId) return;
       
-      const chatId = msg.groupId || (msg.senderId === currentUserId ? msg.receiverId : msg.senderId);
+      // 채팅방 ID 결정 (그룹이면 groupId, 개인 채팅이면 보낸 사람의 ID)
+      const chatId = msg.groupId || msg.senderId;
       
-      // 현재 선택된 방이라면 배지 계산에서 제외 (깜빡임 방지)
+      // 현재 열려있는 방이면 카운트 제외 (깜빡임 방지 및 즉시 읽음 처리)
       if (selectedChat && selectedChat.id === chatId) return;
 
       const lastRead = readMap[chatId] || 0;
-      const msgTime = msg.createdAt?.toMillis() || 0;
+      const msgTime = msg.createdAt?.toMillis?.() || (msg.createdAt?.seconds ? msg.createdAt.seconds * 1000 : Date.now());
 
       if (msgTime > lastRead) {
         counts[chatId] = (counts[chatId] || 0) + 1;
@@ -344,7 +344,7 @@ export function ChatSidebar({
                   <div className="text-[10px] text-muted-foreground">멤버 {group.members?.length}명</div>
                 </div>
                 {unreadCounts[group.id] > 0 && (
-                  <Badge variant="destructive" className="h-5 min-w-5 flex items-center justify-center rounded-full p-1 text-[10px]">
+                  <Badge variant="destructive" className="h-5 min-w-5 flex items-center justify-center rounded-full p-1 text-[10px] animate-in zoom-in duration-200">
                     {unreadCounts[group.id]}
                   </Badge>
                 )}
@@ -374,7 +374,7 @@ export function ChatSidebar({
                     <div className="text-[10px] text-muted-foreground truncate">최근 활동 중</div>
                   </div>
                   {unreadCounts[user.id] > 0 && (
-                    <Badge variant="destructive" className="h-5 min-w-5 flex items-center justify-center rounded-full p-1 text-[10px]">
+                    <Badge variant="destructive" className="h-5 min-w-5 flex items-center justify-center rounded-full p-1 text-[10px] animate-in zoom-in duration-200">
                       {unreadCounts[user.id]}
                     </Badge>
                   )}
