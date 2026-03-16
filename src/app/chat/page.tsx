@@ -33,7 +33,6 @@ export default function ChatPage() {
   const [messageSearchQuery, setMessageSearchQuery] = useState("");
   const [currentSearchMatchIndex, setCurrentSearchMatchIndex] = useState(-1);
   
-  // 페이지네이션 상태
   const [messageLimit, setMessageLimit] = useState(INITIAL_MESSAGE_LIMIT);
   const [isInitialLoad, setIsInitialLoad] = useState(true);
   
@@ -50,7 +49,6 @@ export default function ChatPage() {
     }
   }, [user, userLoading, isMounted, router, isLoggingOut]);
 
-  // 채팅방 변경 시 리미트 초기화
   useEffect(() => {
     setMessageLimit(INITIAL_MESSAGE_LIMIT);
     setIsInitialLoad(true);
@@ -98,40 +96,42 @@ export default function ChatPage() {
     }
   }, [selectedChat, allUsers, userGroups]);
 
-  // 메시지 쿼리: limit와 orderBy를 사용하여 효율적으로 가져옴
+  // 방별 전용 쿼리: limit가 현재 대화방 내에서만 작동하도록 수정
   const messagesQuery = useMemoFirebase(() => {
     if (!db || !user || !selectedChat) return null;
     
-    // 복합 인덱스가 필요할 수 있음: participants(array) + createdAt(desc)
-    return query(
-      collection(db, "messages"),
-      where("participants", "array-contains", user.uid),
-      orderBy("createdAt", "desc"),
-      limit(messageLimit)
-    );
+    if (selectedChat.type === "group") {
+      return query(
+        collection(db, "messages"),
+        where("groupId", "==", selectedChat.id),
+        orderBy("createdAt", "desc"),
+        limit(messageLimit)
+      );
+    } else {
+      // 1:1 대화: 상대방이 포함된 메시지만 가져옴 (보안 규칙이 내가 포함된 것만 필터링해줌)
+      return query(
+        collection(db, "messages"),
+        where("participants", "array-contains", selectedChat.id),
+        where("groupId", "==", null),
+        orderBy("createdAt", "desc"),
+        limit(messageLimit)
+      );
+    }
   }, [db, user, selectedChat, messageLimit]);
   
   const { data: rawMessages, isLoading: messagesLoading } = useCollection(messagesQuery);
 
   const allMessagesInChat = useMemo(() => {
-    if (!rawMessages || !selectedChat || !user) return [];
+    if (!rawMessages) return [];
     
-    return rawMessages
-      .filter((msg: any) => {
-        if (selectedChat.type === "group") {
-          return msg.groupId === selectedChat.id;
-        } else {
-          return !msg.groupId && msg.participants && msg.participants.includes(selectedChat.id);
-        }
-      })
-      .sort((a: any, b: any) => {
-        const timeA = a.createdAt?.toMillis?.() || Date.now();
-        const timeB = b.createdAt?.toMillis?.() || Date.now();
-        return timeA - timeB;
-      });
-  }, [rawMessages, selectedChat, user]);
+    // 이미 쿼리에서 방별 필터링이 되었으므로 정렬만 수행
+    return [...rawMessages].sort((a: any, b: any) => {
+      const timeA = a.createdAt?.toMillis?.() || Date.now();
+      const timeB = b.createdAt?.toMillis?.() || Date.now();
+      return timeA - timeB;
+    });
+  }, [rawMessages]);
 
-  // 무한 스크롤 감지
   useEffect(() => {
     if (!topObserverRef.current || messagesLoading) return;
 
@@ -149,7 +149,6 @@ export default function ChatPage() {
     return () => observer.disconnect();
   }, [allMessagesInChat.length, messageLimit, messagesLoading]);
 
-  // 검색 로직
   const searchMatchIndices = useMemo(() => {
     if (!messageSearchQuery.trim() || !isSearchMode) return [];
     return allMessagesInChat
@@ -165,9 +164,8 @@ export default function ChatPage() {
     }
   }, [searchMatchIndices]);
 
-  // 자동 스크롤 하단 이동 (초기 로딩 시에만)
   useEffect(() => {
-    if (scrollRef.current && !isSearchMode && isInitialLoad) {
+    if (scrollRef.current && !isSearchMode && isInitialLoad && allMessagesInChat.length > 0) {
       scrollRef.current.scrollIntoView({ behavior: "smooth" });
     }
   }, [allMessagesInChat, isSearchMode, isInitialLoad]);
@@ -177,7 +175,7 @@ export default function ChatPage() {
     if (!text || !selectedChat || !user || !db) return;
     
     setInputValue("");
-    setIsInitialLoad(true); // 새 메시지 보낼 때 하단으로 스크롤 강제
+    setIsInitialLoad(true);
 
     try {
       const messageData: any = {
@@ -195,6 +193,7 @@ export default function ChatPage() {
       } else {
         messageData.receiverId = selectedChat.id;
         messageData.participants = [user.uid, selectedChat.id];
+        messageData.groupId = null; // 쿼리 필터링을 위해 명시적으로 null 설정
       }
 
       await addDoc(collection(db, "messages"), messageData);
@@ -346,14 +345,13 @@ export default function ChatPage() {
 
             <ScrollArea className="flex-1 p-6 custom-scrollbar">
               <div className="flex flex-col gap-1 max-w-4xl mx-auto">
-                {/* 상단 무한 스크롤 트리거 */}
                 <div ref={topObserverRef} className="h-10 flex items-center justify-center">
                    {allMessagesInChat.length >= messageLimit && (
                      <Loader2 className="h-4 w-4 animate-spin text-muted-foreground opacity-50" />
                    )}
                 </div>
 
-                {allMessagesInChat.length === 0 ? (
+                {allMessagesInChat.length === 0 && !messagesLoading ? (
                   <div className="flex flex-col items-center justify-center h-full pt-20 text-muted-foreground">
                     <MessageSquarePlus className="h-12 w-12 mb-4 opacity-20" />
                     <p>메시지를 보내 대화를 시작해보세요!</p>
@@ -371,6 +369,11 @@ export default function ChatPage() {
                       isHighlighted={isSearchMode && currentSearchMatchIndex !== -1 && searchMatchIndices[currentSearchMatchIndex] === index}
                     />
                   ))
+                )}
+                {messagesLoading && allMessagesInChat.length === 0 && (
+                  <div className="flex justify-center p-10">
+                    <Loader2 className="h-6 w-6 animate-spin text-primary opacity-50" />
+                  </div>
                 )}
                 <div ref={scrollRef} />
               </div>
