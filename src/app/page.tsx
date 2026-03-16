@@ -4,12 +4,13 @@ import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
-import { MessageSquare, ShieldCheck, Sparkles, Send } from "lucide-react";
+import { MessageSquare, ShieldCheck, Sparkles, Send, AlertCircle } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useAuth, useFirestore, useUser } from "@/firebase";
 import { signInWithEmailAndPassword, createUserWithEmailAndPassword, updateProfile } from "firebase/auth";
 import { doc, setDoc } from "firebase/firestore";
 import { useToast } from "@/hooks/use-toast";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 
 export default function Home() {
   const [isLogin, setIsLogin] = useState(true);
@@ -32,7 +33,14 @@ export default function Home() {
 
   const handleAuth = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!auth || !db) return;
+    if (!auth || !db) {
+      toast({
+        variant: "destructive",
+        title: "연결 오류",
+        description: "Firebase가 초기화되지 않았습니다. API 키를 확인해주세요.",
+      });
+      return;
+    }
     
     setLoading(true);
     try {
@@ -96,83 +104,88 @@ export default function Home() {
                 <p>Genkit AI가 상황에 맞는 최적의 답장을 추천해 소통이 더 빨라집니다.</p>
               </div>
             </div>
-            <div className="flex items-start gap-4">
-              <Send className="h-6 w-6 text-accent mt-1" />
-              <div>
-                <h3 className="text-xl font-semibold text-white">실시간 동기화</h3>
-                <p>Firestore 실시간 리스너를 통해 지연 없는 대화를 즐기세요.</p>
-              </div>
-            </div>
           </div>
         </div>
       </div>
 
       <div className="flex-1 flex items-center justify-center p-8 bg-background">
-        <Card className="w-full max-w-md shadow-2xl border-none">
-          <CardHeader className="text-center pb-2">
-            <CardTitle className="text-2xl font-bold text-primary">
-              {isLogin ? "환영합니다!" : "새로운 시작"}
-            </CardTitle>
-            <CardDescription>
-              {isLogin ? "계정에 로그인하여 대화를 이어가세요." : "바이브챗과 함께 새로운 대화를 시작하세요."}
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <form onSubmit={handleAuth} className="space-y-4 pt-4">
-              {!isLogin && (
+        <div className="w-full max-w-md space-y-6">
+          {!auth && (
+            <Alert variant="destructive">
+              <AlertCircle className="h-4 w-4" />
+              <AlertTitle>환경 설정 필요</AlertTitle>
+              <AlertDescription>
+                Firebase API 키가 유효하지 않습니다. 프로젝트 대시보드에서 설정을 완료해주세요.
+              </AlertDescription>
+            </Alert>
+          )}
+          
+          <Card className="shadow-2xl border-none">
+            <CardHeader className="text-center pb-2">
+              <CardTitle className="text-2xl font-bold text-primary">
+                {isLogin ? "환영합니다!" : "새로운 시작"}
+              </CardTitle>
+              <CardDescription>
+                {isLogin ? "계정에 로그인하여 대화를 이어가세요." : "바이브챗과 함께 새로운 대화를 시작하세요."}
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <form onSubmit={handleAuth} className="space-y-4 pt-4">
+                {!isLogin && (
+                  <div className="space-y-2">
+                    <Input 
+                      placeholder="사용자 이름" 
+                      required 
+                      className="h-12 border-muted" 
+                      value={username}
+                      onChange={(e) => setUsername(e.target.value)}
+                    />
+                  </div>
+                )}
                 <div className="space-y-2">
                   <Input 
-                    placeholder="사용자 이름" 
+                    type="email" 
+                    placeholder="이메일 주소" 
                     required 
                     className="h-12 border-muted" 
-                    value={username}
-                    onChange={(e) => setUsername(e.target.value)}
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
                   />
                 </div>
-              )}
-              <div className="space-y-2">
-                <Input 
-                  type="email" 
-                  placeholder="이메일 주소" 
-                  required 
-                  className="h-12 border-muted" 
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                />
+                <div className="space-y-2">
+                  <Input 
+                    type="password" 
+                    placeholder="비밀번호" 
+                    required 
+                    className="h-12 border-muted" 
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                  />
+                </div>
+                <Button type="submit" disabled={loading || !auth} className="w-full h-12 text-lg font-semibold bg-primary hover:bg-primary/90">
+                  {loading ? "처리 중..." : (isLogin ? "로그인" : "회원가입")}
+                </Button>
+              </form>
+            </CardContent>
+            <CardFooter className="flex flex-col gap-4">
+              <div className="relative w-full text-center">
+                <div className="absolute inset-0 flex items-center">
+                  <span className="w-full border-t" />
+                </div>
+                <span className="relative bg-background px-2 text-xs text-muted-foreground uppercase">
+                  또는
+                </span>
               </div>
-              <div className="space-y-2">
-                <Input 
-                  type="password" 
-                  placeholder="비밀번호" 
-                  required 
-                  className="h-12 border-muted" 
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                />
-              </div>
-              <Button type="submit" disabled={loading} className="w-full h-12 text-lg font-semibold bg-primary hover:bg-primary/90">
-                {loading ? "처리 중..." : (isLogin ? "로그인" : "회원가입")}
+              <Button
+                variant="link"
+                className="text-primary hover:text-primary/80"
+                onClick={() => setIsLogin(!isLogin)}
+              >
+                {isLogin ? "아직 계정이 없으신가요? 회원가입" : "이미 계정이 있으신가요? 로그인"}
               </Button>
-            </form>
-          </CardContent>
-          <CardFooter className="flex flex-col gap-4">
-            <div className="relative w-full text-center">
-              <div className="absolute inset-0 flex items-center">
-                <span className="w-full border-t" />
-              </div>
-              <span className="relative bg-background px-2 text-xs text-muted-foreground uppercase">
-                또는
-              </span>
-            </div>
-            <Button
-              variant="link"
-              className="text-primary hover:text-primary/80"
-              onClick={() => setIsLogin(!isLogin)}
-            >
-              {isLogin ? "아직 계정이 없으신가요? 회원가입" : "이미 계정이 있으신가요? 로그인"}
-            </Button>
-          </CardFooter>
-        </Card>
+            </CardFooter>
+          </Card>
+        </div>
       </div>
     </div>
   );
