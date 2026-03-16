@@ -54,48 +54,56 @@ export function ChatSidebar({
   const db = useFirestore();
   const { toast } = useToast();
 
+  // 최신 메시지들을 가져오기 위한 쿼리
   const messagesQuery = useMemoFirebase(() => {
     if (!db || !currentUserId) return null;
     return query(collection(db, "messages"), where("participants", "array-contains", currentUserId));
   }, [db, currentUserId]);
   const { data: allRelevantMessages, isLoading: messagesLoading } = useCollection(messagesQuery);
 
+  // 사용자의 읽음 상태 정보를 가져오는 쿼리
   const readStatusQuery = useMemoFirebase(() => {
     if (!db || !currentUserId) return null;
     return query(collection(db, "users", currentUserId, "readStatus"));
   }, [db, currentUserId]);
   const { data: readStatuses, isLoading: readStatusesLoading } = useCollection(readStatusQuery);
 
+  // 배지 계산 로직
   const unreadCounts = useMemo(() => {
-    // 모든 관련 데이터(메시지, 읽음 상태)가 완전히 로드될 때까지 계산을 수행하지 않음 (깜빡임 방지 핵심)
+    // 필수 데이터가 로딩 중이거나 사용자가 없으면 빈 객체 반환
     if (messagesLoading || readStatusesLoading || !currentUserId) return {};
-    if (!allRelevantMessages || !readStatuses) return {};
+    if (!allRelevantMessages) return {};
     
     const counts: Record<string, number> = {};
     const readMap: Record<string, number> = {};
     
-    // 읽음 상태 맵 구성
-    readStatuses.forEach(status => {
-      const time = status.lastReadAt?.toMillis?.() || (status.lastReadAt?.seconds ? status.lastReadAt.seconds * 1000 : 0);
-      readMap[status.id] = time;
-    });
+    // 1. 읽음 상태 맵 구성 (chatId -> lastReadTime)
+    if (readStatuses) {
+      readStatuses.forEach(status => {
+        const time = status.lastReadAt?.toMillis?.() || 
+                     (status.lastReadAt?.seconds ? status.lastReadAt.seconds * 1000 : 0);
+        readMap[status.id] = time;
+      });
+    }
 
+    // 2. 메시지 순회하며 읽지 않은 개수 계산
     allRelevantMessages.forEach((msg: any) => {
-      // 본인이 보낸 메시지는 카운트 제외
+      // 내가 보낸 메시지는 카운트하지 않음
       if (msg.senderId === currentUserId) return;
       
-      // 채팅방 ID 결정 (그룹 ID 또는 상대방 UID)
+      // 대화방 ID 식별 (그룹방 ID 또는 개인 채팅 상대방 UID)
       const chatId = msg.groupId || msg.participants?.find((p: string) => p !== currentUserId);
       if (!chatId) return;
 
-      // 현재 선택된 채팅방이면 배지를 표시하지 않음 (사용자가 이미 보고 있음)
+      // 현재 사용자가 보고 있는 방이면 배지를 표시하지 않음
       if (selectedChat && selectedChat.id === chatId) return;
 
       const lastRead = readMap[chatId] || 0;
-      const msgTime = msg.createdAt?.toMillis?.() || (msg.createdAt?.seconds ? msg.createdAt.seconds * 1000 : 0);
+      const msgTime = msg.createdAt?.toMillis?.() || 
+                      (msg.createdAt?.seconds ? msg.createdAt.seconds * 1000 : Date.now());
 
-      // 메시지 시간이 마지막 읽은 시간보다 크고, 메시지 시간이 유효할 때만 카운트
-      if (msgTime > 0 && msgTime > lastRead) {
+      // 마지막 읽은 시간 이후에 온 메시지라면 카운트 증가
+      if (msgTime > lastRead) {
         counts[chatId] = (counts[chatId] || 0) + 1;
       }
     });
