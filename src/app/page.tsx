@@ -42,16 +42,15 @@ export default function Home() {
         const userCredential = await createUserWithEmailAndPassword(auth, email, password);
         const newUser = userCredential.user;
         
-        // Update Firebase Auth profile
         await updateProfile(newUser, {
           displayName: username,
           photoURL: `https://picsum.photos/seed/${newUser.uid}/200/200`
         });
 
-        // Save to Firestore
         await setDoc(doc(db, "users", newUser.uid), {
           username: username,
-          avatarUrl: `https://picsum.photos/seed/${newUser.uid}/200/200`
+          avatarUrl: `https://picsum.photos/seed/${newUser.uid}/200/200`,
+          id: newUser.uid
         });
       }
       router.push("/chat");

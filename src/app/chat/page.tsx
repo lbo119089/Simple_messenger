@@ -11,7 +11,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Send, Phone, Video, Info, MoreVertical, MessageSquarePlus } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useAuth, useFirestore, useUser, useCollection } from "@/firebase";
-import { collection, query, where, orderBy, addDoc, serverTimestamp, Timestamp } from "firebase/firestore";
+import { collection, query, where, orderBy, addDoc, serverTimestamp } from "firebase/firestore";
 import { signOut } from "firebase/auth";
 import { useToast } from "@/hooks/use-toast";
 
@@ -30,14 +30,12 @@ export default function ChatPage() {
     setIsMounted(true);
   }, []);
 
-  // Fetch all users to show in sidebar
   const usersQuery = useMemo(() => {
     if (!db) return null;
     return query(collection(db, "users"));
   }, [db]);
   const { data: usersData, isLoading: usersLoading } = useCollection(usersQuery);
 
-  // Fetch messages for selected conversation
   const messagesQuery = useMemo(() => {
     if (!db || !user || !selectedUserId) return null;
     return query(
@@ -49,7 +47,6 @@ export default function ChatPage() {
   
   const { data: rawMessages } = useCollection(messagesQuery);
 
-  // Filter messages for the specific peer
   const messages = useMemo(() => {
     if (!rawMessages || !selectedUserId) return [];
     return rawMessages.filter((msg: any) => 
