@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { Send, Phone, Video, Info, MoreVertical, MessageSquarePlus, Loader2 } from "lucide-react";
+import { Send, Phone, Video, Info, MoreVertical, MessageSquarePlus, Loader2, Users } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useAuth, useFirestore, useUser, useCollection, useDoc } from "@/firebase";
 import { collection, query, where, addDoc, serverTimestamp, doc } from "firebase/firestore";
@@ -22,7 +22,7 @@ export default function ChatPage() {
   const auth = useAuth();
   const db = useFirestore();
   const { user, isLoading: userLoading } = useUser();
-  const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
+  const [selectedChat, setSelectedChat] = useState<{ type: "private" | "group"; id: string } | null>(null);
   const [inputValue, setInputValue] = useState("");
   const [isMounted, setIsMounted] = useState(false);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
@@ -45,55 +45,72 @@ export default function ChatPage() {
   }, [db, user]);
   const { data: currentUserProfile } = useDoc(currentUserDocRef);
 
-  // 전체 사용자 목록 (친구 추가용)
+  // 전체 사용자 목록
   const usersQuery = useMemo(() => {
     if (!db) return null;
     return query(collection(db, "users"));
   }, [db]);
   const { data: allUsers, isLoading: usersLoading } = useCollection(usersQuery);
 
-  // 내 친구 목록 가져오기 (서브 컬렉션)
+  // 내 친구 목록
   const friendsQuery = useMemo(() => {
     if (!db || !user) return null;
     return query(collection(db, "users", user.uid, "friends"));
   }, [db, user]);
   const { data: friendsListData } = useCollection(friendsQuery);
 
-  // 실제 친구 객체들만 필터링
   const friends = useMemo(() => {
     if (!allUsers || !friendsListData || !user) return [];
     const friendIds = friendsListData.map((f: any) => f.id);
-    // 나 자신은 친구 목록에서 제외하고, 추가된 사람만 필터링
     return allUsers.filter(u => u.id !== user.uid && friendIds.includes(u.id));
   }, [allUsers, friendsListData, user]);
 
+  // 내가 속한 그룹 목록
+  const groupsQuery = useMemo(() => {
+    if (!db || !user) return null;
+    return query(collection(db, "groups"), where("members", "array-contains", user.uid));
+  }, [db, user]);
+  const { data: userGroups } = useCollection(groupsQuery);
+
+  // 선택된 채팅 대상 정보 (개인 또는 그룹)
+  const selectedInfo = useMemo(() => {
+    if (!selectedChat) return null;
+    if (selectedChat.type === "private") {
+      return allUsers?.find(u => u.id === selectedChat.id);
+    } else {
+      return userGroups?.find(g => g.id === selectedChat.id);
+    }
+  }, [selectedChat, allUsers, userGroups]);
+
   // 메시지 가져오기
   const messagesQuery = useMemo(() => {
-    if (!db || !user || !selectedUserId) return null;
+    if (!db || !user || !selectedChat) return null;
     return query(
       collection(db, "messages"),
       where("participants", "array-contains", user.uid)
     );
-  }, [db, user, selectedUserId]);
+  }, [db, user, selectedChat]);
   
   const { data: rawMessages } = useCollection(messagesQuery);
 
-  // 클라이언트 측 메시지 필터링 및 정렬
   const messages = useMemo(() => {
-    if (!rawMessages || !selectedUserId || !user) return [];
+    if (!rawMessages || !selectedChat || !user) return [];
     
     const now = Date.now();
     return rawMessages
-      .filter((msg: any) => 
-        msg.participants && msg.participants.includes(selectedUserId)
-      )
+      .filter((msg: any) => {
+        if (selectedChat.type === "group") {
+          return msg.groupId === selectedChat.id;
+        } else {
+          return !msg.groupId && msg.participants && msg.participants.includes(selectedChat.id);
+        }
+      })
       .sort((a: any, b: any) => {
-        // 서버 타임스탬프가 아직 생성되지 않은 경우(null) 현재 시간을 기준으로 정렬
         const timeA = a.createdAt?.toMillis?.() || now;
         const timeB = b.createdAt?.toMillis?.() || now;
         return timeA - timeB;
       });
-  }, [rawMessages, selectedUserId, user]);
+  }, [rawMessages, selectedChat, user]);
 
   useEffect(() => {
     if (scrollRef.current) {
@@ -103,18 +120,29 @@ export default function ChatPage() {
 
   const handleSendMessage = async (content: string) => {
     const text = content.trim();
-    if (!text || !selectedUserId || !user || !db) return;
+    if (!text || !selectedChat || !user || !db) return;
     
     setInputValue("");
 
     try {
-      await addDoc(collection(db, "messages"), {
+      const messageData: any = {
         senderId: user.uid,
-        receiverId: selectedUserId,
-        participants: [user.uid, selectedUserId],
         content: text,
-        createdAt: serverTimestamp()
-      });
+        createdAt: serverTimestamp(),
+        senderName: currentUserProfile?.username || "Unknown",
+        senderAvatar: currentUserProfile?.avatarUrl || ""
+      };
+
+      if (selectedChat.type === "group") {
+        const group = userGroups?.find(g => g.id === selectedChat.id);
+        messageData.groupId = selectedChat.id;
+        messageData.participants = group.members;
+      } else {
+        messageData.receiverId = selectedChat.id;
+        messageData.participants = [user.uid, selectedChat.id];
+      }
+
+      await addDoc(collection(db, "messages"), messageData);
     } catch (error: any) {
       console.error("메시지 전송 실패:", error);
       toast({
@@ -152,8 +180,6 @@ export default function ChatPage() {
     );
   }
 
-  const selectedUser = allUsers?.find(u => u.id === selectedUserId);
-
   const aiMessageFormat = messages.slice(-5).map((m: any) => ({
     sender: m.senderId === user?.uid ? "user" as const : "other" as const,
     content: m.content
@@ -166,27 +192,29 @@ export default function ChatPage() {
         currentUserProfile={currentUserProfile}
         allUsers={allUsers || []}
         friends={friends}
-        selectedUserId={selectedUserId}
-        onSelectUser={setSelectedUserId}
+        groups={userGroups || []}
+        selectedChat={selectedChat}
+        onSelectChat={setSelectedChat}
         onLogout={handleLogout}
       />
 
       <div className="flex-1 flex flex-col min-w-0">
-        {selectedUserId && selectedUser ? (
+        {selectedChat && selectedInfo ? (
           <>
             <header className="h-16 flex items-center justify-between px-6 bg-white border-b border-border z-10">
               <div className="flex items-center gap-3">
                 <Avatar className="h-10 w-10">
-                  <AvatarImage src={selectedUser.avatarUrl} />
+                  <AvatarImage src={selectedInfo.avatarUrl} />
                   <AvatarFallback className="bg-primary/10 text-primary">
-                    {selectedUser.username ? selectedUser.username[0].toUpperCase() : "?"}
+                    {selectedChat.type === "group" ? <Users className="h-5 w-5" /> : (selectedInfo.username ? selectedInfo.username[0].toUpperCase() : "?")}
                   </AvatarFallback>
                 </Avatar>
                 <div>
-                  <h2 className="font-bold text-lg leading-none">{selectedUser.username}</h2>
-                  <p className="text-xs text-green-500 mt-1 flex items-center gap-1">
-                    <span className="h-1.5 w-1.5 rounded-full bg-green-500" />
-                    현재 활동 중
+                  <h2 className="font-bold text-lg leading-none">
+                    {selectedChat.type === "group" ? selectedInfo.name : selectedInfo.username}
+                  </h2>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    {selectedChat.type === "group" ? `멤버 ${selectedInfo.members?.length}명` : "현재 활동 중"}
                   </p>
                 </div>
               </div>
@@ -212,6 +240,8 @@ export default function ChatPage() {
                       content={msg.content}
                       timestamp={msg.createdAt?.toDate ? msg.createdAt.toDate().toISOString() : new Date().toISOString()}
                       isUser={msg.senderId === user?.uid}
+                      senderName={selectedChat.type === "group" ? msg.senderName : undefined}
+                      senderAvatar={selectedChat.type === "group" ? msg.senderAvatar : undefined}
                     />
                   ))
                 )}
@@ -259,7 +289,7 @@ export default function ChatPage() {
             </div>
             <h2 className="text-2xl font-bold text-foreground mb-2">당신의 이야기를 시작하세요</h2>
             <p className="text-muted-foreground max-w-xs">
-              왼쪽 목록에서 친구를 추가하거나 대화를 선택하여 소통해보세요.
+              왼쪽 목록에서 친구를 선택하거나 그룹을 만들어 대화를 시작해보세요.
             </p>
           </div>
         )}

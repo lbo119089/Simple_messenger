@@ -4,23 +4,25 @@
 import { useState, useEffect, useMemo } from "react";
 import { Input } from "@/components/ui/input";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { Search, Plus, MessageSquare, LogOut, Settings, User, Check, Loader2, UserPlus, UserMinus } from "lucide-react";
+import { Search, Plus, MessageSquare, LogOut, Settings, User, Check, Loader2, UserPlus, UserMinus, Users, MessageCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
 import { PlaceHolderImages } from "@/lib/placeholder-images";
 import { useFirestore } from "@/firebase";
-import { doc, updateDoc, setDoc, deleteDoc } from "firebase/firestore";
+import { doc, updateDoc, setDoc, deleteDoc, collection, addDoc, serverTimestamp } from "firebase/firestore";
 import { useToast } from "@/hooks/use-toast";
+import { Checkbox } from "@/components/ui/checkbox";
 
 interface ChatSidebarProps {
   currentUserId: string;
   currentUserProfile: any;
   allUsers: any[];
   friends: any[];
-  selectedUserId: string | null;
-  onSelectUser: (userId: string) => void;
+  groups: any[];
+  selectedChat: { type: "private" | "group"; id: string } | null;
+  onSelectChat: (chat: { type: "private" | "group"; id: string }) => void;
   onLogout: () => void;
 }
 
@@ -29,17 +31,25 @@ export function ChatSidebar({
   currentUserProfile,
   allUsers,
   friends,
-  selectedUserId,
-  onSelectUser,
+  groups,
+  selectedChat,
+  onSelectChat,
   onLogout,
 }: ChatSidebarProps) {
   const [searchQuery, setSearchQuery] = useState("");
   const [friendSearchQuery, setFriendSearchQuery] = useState("");
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [isAddFriendOpen, setIsAddFriendOpen] = useState(false);
+  const [isCreateGroupOpen, setIsCreateGroupOpen] = useState(false);
+  
   const [editUsername, setEditUsername] = useState("");
   const [editAvatar, setEditAvatar] = useState("");
   const [isUpdating, setIsUpdating] = useState(false);
+
+  // 그룹 생성 관련 상태
+  const [groupName, setGroupName] = useState("");
+  const [selectedFriendsForGroup, setSelectedFriendsForGroup] = useState<string[]>([]);
+  const [isCreatingGroup, setIsCreatingGroup] = useState(false);
   
   const db = useFirestore();
   const { toast } = useToast();
@@ -51,7 +61,6 @@ export function ChatSidebar({
     }
   }, [currentUserProfile, isEditDialogOpen]);
 
-  // 검색된 친구 목록
   const filteredFriends = useMemo(() => {
     if (!friends) return [];
     return friends.filter((u) =>
@@ -59,7 +68,13 @@ export function ChatSidebar({
     );
   }, [friends, searchQuery]);
 
-  // 친구 추가 가능한 사용자들 (나를 제외하고 이미 친구가 아닌 사람들)
+  const filteredGroups = useMemo(() => {
+    if (!groups) return [];
+    return groups.filter((g) =>
+      g.name?.toLowerCase().includes(searchQuery.toLowerCase())
+    );
+  }, [groups, searchQuery]);
+
   const addableUsers = useMemo(() => {
     if (!allUsers || !currentUserId || !friends) return [];
     const friendIds = friends.map(f => f.id);
@@ -107,6 +122,39 @@ export function ChatSidebar({
     }
   }
 
+  async function handleCreateGroup() {
+    if (!db || !currentUserId || !groupName || selectedFriendsForGroup.length === 0) {
+      toast({ variant: "destructive", title: "정보 부족", description: "그룹 이름과 멤버를 선택해주세요." });
+      return;
+    }
+    setIsCreatingGroup(true);
+    try {
+      const groupData = {
+        name: groupName,
+        members: [...selectedFriendsForGroup, currentUserId],
+        createdBy: currentUserId,
+        createdAt: serverTimestamp(),
+        avatarUrl: `https://picsum.photos/seed/${groupName}/200/200`
+      };
+      const docRef = await addDoc(collection(db, "groups"), groupData);
+      toast({ title: "그룹 생성 완료!" });
+      setGroupName("");
+      setSelectedFriendsForGroup([]);
+      setIsCreateGroupOpen(false);
+      onSelectChat({ type: "group", id: docRef.id });
+    } catch (error: any) {
+      toast({ variant: "destructive", title: "그룹 생성 실패", description: error.message });
+    } finally {
+      setIsCreatingGroup(false);
+    }
+  }
+
+  const toggleFriendSelection = (friendId: string) => {
+    setSelectedFriendsForGroup(prev => 
+      prev.includes(friendId) ? prev.filter(id => id !== friendId) : [...prev, friendId]
+    );
+  };
+
   return (
     <div className="flex flex-col h-full bg-white border-r border-border w-full md:w-[320px]">
       <div className="p-4 flex flex-col gap-4">
@@ -116,7 +164,49 @@ export function ChatSidebar({
             바이브챗
           </h1>
           <div className="flex items-center gap-1">
-            {/* 친구 추가 다이얼로그 */}
+            {/* 그룹 생성 버튼 */}
+            <Dialog open={isCreateGroupOpen} onOpenChange={setIsCreateGroupOpen}>
+              <DialogTrigger asChild>
+                <Button variant="ghost" size="icon" title="Create Group">
+                  <Users className="h-5 w-5 text-muted-foreground" />
+                </Button>
+              </DialogTrigger>
+              <DialogContent className="sm:max-w-md">
+                <DialogHeader><DialogTitle>새 그룹 채팅</DialogTitle></DialogHeader>
+                <div className="space-y-4 py-4">
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">그룹 이름</label>
+                    <Input value={groupName} onChange={(e) => setGroupName(e.target.value)} placeholder="그룹 이름을 입력하세요" />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">멤버 선택 ({selectedFriendsForGroup.length})</label>
+                    <ScrollArea className="h-48 border rounded-md p-2">
+                      {friends.length > 0 ? (
+                        friends.map(friend => (
+                          <div key={friend.id} className="flex items-center gap-3 p-2 hover:bg-muted rounded-md cursor-pointer" onClick={() => toggleFriendSelection(friend.id)}>
+                            <Checkbox checked={selectedFriendsForGroup.includes(friend.id)} />
+                            <Avatar className="h-8 w-8">
+                              <AvatarImage src={friend.avatarUrl} />
+                              <AvatarFallback>{friend.username?.[0]}</AvatarFallback>
+                            </Avatar>
+                            <span className="text-sm">{friend.username}</span>
+                          </div>
+                        ))
+                      ) : (
+                        <p className="text-xs text-center text-muted-foreground py-4">친구를 먼저 추가해주세요.</p>
+                      )}
+                    </ScrollArea>
+                  </div>
+                </div>
+                <DialogFooter>
+                  <Button variant="outline" onClick={() => setIsCreateGroupOpen(false)}>취소</Button>
+                  <Button onClick={handleCreateGroup} disabled={isCreatingGroup || !groupName || selectedFriendsForGroup.length === 0}>
+                    {isCreatingGroup ? <Loader2 className="h-4 w-4 animate-spin" /> : "생성하기"}
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
+
             <Dialog open={isAddFriendOpen} onOpenChange={setIsAddFriendOpen}>
               <DialogTrigger asChild>
                 <Button variant="ghost" size="icon" title="Add Friend">
@@ -124,39 +214,25 @@ export function ChatSidebar({
                 </Button>
               </DialogTrigger>
               <DialogContent className="sm:max-w-md">
-                <DialogHeader>
-                  <DialogTitle>친구 찾기</DialogTitle>
-                </DialogHeader>
+                <DialogHeader><DialogTitle>친구 찾기</DialogTitle></DialogHeader>
                 <div className="space-y-4 py-2">
                   <div className="relative">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                    <Input
-                      placeholder="이름으로 검색..."
-                      className="pl-9 h-11"
-                      value={friendSearchQuery}
-                      onChange={(e) => setFriendSearchQuery(e.target.value)}
-                    />
+                    <Input placeholder="이름으로 검색..." className="pl-9 h-11" value={friendSearchQuery} onChange={(e) => setFriendSearchQuery(e.target.value)} />
                   </div>
                   <ScrollArea className="h-72 rounded-xl border border-muted/20 bg-muted/5 p-2">
                     {addableUsers.length > 0 ? (
                       addableUsers.map((user) => (
                         <div key={user.id} className="flex items-center justify-between p-2 hover:bg-muted/50 rounded-lg transition-colors mb-1">
                           <div className="flex items-center gap-3">
-                            <Avatar className="h-10 w-10">
-                              <AvatarImage src={user.avatarUrl} />
-                              <AvatarFallback>{user.username?.[0]}</AvatarFallback>
-                            </Avatar>
+                            <Avatar className="h-10 w-10"><AvatarImage src={user.avatarUrl} /><AvatarFallback>{user.username?.[0]}</AvatarFallback></Avatar>
                             <span className="font-medium text-sm">{user.username}</span>
                           </div>
-                          <Button size="sm" variant="outline" className="h-8 gap-1" onClick={() => handleAddFriend(user.id)}>
-                            <Plus className="h-3 w-3" /> 추가
-                          </Button>
+                          <Button size="sm" variant="outline" className="h-8 gap-1" onClick={() => handleAddFriend(user.id)}><Plus className="h-3 w-3" /> 추가</Button>
                         </div>
                       ))
                     ) : (
-                      <div className="text-center py-10 text-sm text-muted-foreground">
-                        {friendSearchQuery ? "검색 결과가 없습니다." : "가입된 사용자가 없습니다."}
-                      </div>
+                      <div className="text-center py-10 text-sm text-muted-foreground">검색 결과가 없습니다.</div>
                     )}
                   </ScrollArea>
                 </div>
@@ -164,23 +240,17 @@ export function ChatSidebar({
             </Dialog>
 
             <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
-              <DialogTrigger asChild>
-                <Button variant="ghost" size="icon" title="Edit Profile">
-                  <Settings className="h-5 w-5 text-muted-foreground" />
-                </Button>
-              </DialogTrigger>
+              <DialogTrigger asChild><Button variant="ghost" size="icon"><Settings className="h-5 w-5 text-muted-foreground" /></Button></DialogTrigger>
               <DialogContent className="sm:max-w-md">
                 <DialogHeader><DialogTitle>내 프로필 수정</DialogTitle></DialogHeader>
                 <div className="space-y-6 py-4">
                   <div className="space-y-3">
-                    <label className="text-sm font-medium text-muted-foreground">아바타 변경</label>
+                    <label className="text-sm font-medium">아바타 변경</label>
                     <ScrollArea className="h-48 rounded-xl border border-muted p-4 bg-muted/10">
                       <div className="grid grid-cols-4 gap-4">
                         {PlaceHolderImages.map((img) => (
                           <div key={img.id} className="relative cursor-pointer flex flex-col items-center" onClick={() => setEditAvatar(img.imageUrl)}>
-                            <Avatar className={cn("h-14 w-14 border-2 transition-all", editAvatar === img.imageUrl ? "border-primary scale-110 shadow-md ring-2 ring-primary/20" : "border-transparent opacity-60 grayscale-[40%]")}>
-                              <AvatarImage src={img.imageUrl} /><AvatarFallback><User /></AvatarFallback>
-                            </Avatar>
+                            <Avatar className={cn("h-14 w-14 border-2 transition-all", editAvatar === img.imageUrl ? "border-primary scale-110 shadow-md ring-2 ring-primary/20" : "border-transparent opacity-60 grayscale-[40%]")}><AvatarImage src={img.imageUrl} /><AvatarFallback><User /></AvatarFallback></Avatar>
                             {editAvatar === img.imageUrl && <div className="absolute -top-1 -right-1 bg-primary text-white rounded-full p-0.5 border-2 border-white shadow-sm z-10"><Check className="h-2.5 w-2.5" /></div>}
                           </div>
                         ))}
@@ -188,8 +258,8 @@ export function ChatSidebar({
                     </ScrollArea>
                   </div>
                   <div className="space-y-2">
-                    <label className="text-sm font-medium text-muted-foreground">이름</label>
-                    <Input value={editUsername} onChange={(e) => setEditUsername(e.target.value)} placeholder="이름을 입력하세요" />
+                    <label className="text-sm font-medium">이름</label>
+                    <Input value={editUsername} onChange={(e) => setEditUsername(e.target.value)} />
                   </div>
                 </div>
                 <DialogFooter>
@@ -198,60 +268,79 @@ export function ChatSidebar({
                 </DialogFooter>
               </DialogContent>
             </Dialog>
-            <Button variant="ghost" size="icon" onClick={onLogout} title="Logout"><LogOut className="h-5 w-5 text-muted-foreground" /></Button>
+            <Button variant="ghost" size="icon" onClick={onLogout}><LogOut className="h-5 w-5 text-muted-foreground" /></Button>
           </div>
         </div>
 
         <div className="relative">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-          <Input placeholder="친구 검색..." className="pl-9 bg-background border-none" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} />
+          <Input placeholder="검색..." className="pl-9 bg-background border-none" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} />
         </div>
       </div>
 
       <ScrollArea className="flex-1 custom-scrollbar">
-        <div className="px-2">
-          <div className="px-4 py-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider flex justify-between items-center">
-            내 친구 ({filteredFriends.length})
+        <div className="px-2 space-y-4">
+          {/* 그룹 채팅 목록 */}
+          <div>
+            <div className="px-4 py-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-2">
+              <Users className="h-3 w-3" /> 그룹 ({filteredGroups.length})
+            </div>
+            {filteredGroups.map((group) => (
+              <button
+                key={group.id}
+                onClick={() => onSelectChat({ type: "group", id: group.id })}
+                className={cn(
+                  "w-full flex items-center gap-3 p-3 rounded-lg transition-colors mb-1",
+                  selectedChat?.type === "group" && selectedChat.id === group.id ? "bg-secondary text-primary" : "hover:bg-muted"
+                )}
+              >
+                <Avatar className="h-10 w-10">
+                  <AvatarImage src={group.avatarUrl} />
+                  <AvatarFallback className="bg-primary/10 text-primary"><Users className="h-5 w-5" /></AvatarFallback>
+                </Avatar>
+                <div className="flex-1 text-left overflow-hidden">
+                  <div className="font-semibold truncate text-sm">{group.name}</div>
+                  <div className="text-[10px] text-muted-foreground">멤버 {group.members?.length}명</div>
+                </div>
+              </button>
+            ))}
           </div>
-          {filteredFriends.length > 0 ? (
-            filteredFriends.map((user) => (
+
+          {/* 친구 목록 */}
+          <div>
+            <div className="px-4 py-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-2">
+              <User className="h-3 w-3" /> 친구 ({filteredFriends.length})
+            </div>
+            {filteredFriends.map((user) => (
               <div key={user.id} className="relative group mb-1">
                 <button
-                  onClick={() => onSelectUser(user.id)}
+                  onClick={() => onSelectChat({ type: "private", id: user.id })}
                   className={cn(
                     "w-full flex items-center gap-3 p-3 rounded-lg transition-colors",
-                    selectedUserId === user.id ? "bg-secondary text-primary" : "hover:bg-muted"
+                    selectedChat?.type === "private" && selectedChat.id === user.id ? "bg-secondary text-primary" : "hover:bg-muted"
                   )}
                 >
-                  <Avatar className="h-12 w-12 border-2 border-transparent">
+                  <Avatar className="h-10 w-10">
                     <AvatarImage src={user.avatarUrl} />
                     <AvatarFallback className="bg-primary/10 text-primary">{user.username?.[0]}</AvatarFallback>
                   </Avatar>
                   <div className="flex-1 text-left overflow-hidden">
-                    <div className="font-semibold truncate">{user.username}</div>
-                    <div className="text-[10px] text-muted-foreground truncate">
-                      {selectedUserId === user.id ? "대화 중..." : "최근 활동 중"}
-                    </div>
+                    <div className="font-semibold truncate text-sm">{user.username}</div>
+                    <div className="text-[10px] text-muted-foreground truncate">최근 활동 중</div>
                   </div>
                 </button>
                 <button 
                   onClick={(e) => { e.stopPropagation(); handleRemoveFriend(user.id); }}
                   className="absolute right-2 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 p-2 text-muted-foreground hover:text-destructive transition-all"
-                  title="Remove Friend"
                 >
                   <UserMinus className="h-4 w-4" />
                 </button>
               </div>
-            ))
-          ) : (
-            <div className="p-8 text-center text-muted-foreground text-sm flex flex-col gap-2 items-center">
-              <UserPlus className="h-8 w-8 opacity-20" />
-              <p>{searchQuery ? "검색 결과가 없습니다." : "친구를 추가하여 대화를 시작해보세요!"}</p>
-              {!searchQuery && (
-                <Button variant="link" size="sm" onClick={() => setIsAddFriendOpen(true)}>친구 찾으러 가기</Button>
-              )}
-            </div>
-          )}
+            ))}
+            {filteredFriends.length === 0 && !searchQuery && (
+              <div className="p-4 text-center text-xs text-muted-foreground">친구를 추가해보세요!</div>
+            )}
+          </div>
         </div>
       </ScrollArea>
 

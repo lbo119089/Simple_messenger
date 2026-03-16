@@ -7,12 +7,15 @@
       "type": "object",
       "properties": {
         "senderId": { "type": "string", "description": "메시지를 보낸 사용자의 UID" },
-        "receiverId": { "type": "string", "description": "메시지를 받는 사용자의 UID" },
+        "receiverId": { "type": "string", "description": "1:1 채팅의 경우 받는 사용자의 UID (그룹 채팅시 생략 가능)" },
+        "groupId": { "type": "string", "description": "그룹 채팅의 경우 그룹의 ID" },
         "participants": { "type": "array", "items": { "type": "string" }, "description": "대화 참여자 UID 목록" },
         "content": { "type": "string", "description": "메시지 내용" },
+        "senderName": { "type": "string", "description": "발신자 이름 (그룹 채팅 표시용)" },
+        "senderAvatar": { "type": "string", "description": "발신자 아바타 (그룹 채팅 표시용)" },
         "createdAt": { "type": "string", "format": "date-time", "description": "메시지 생성 시간" }
       },
-      "required": ["senderId", "receiverId", "participants", "content", "createdAt"]
+      "required": ["senderId", "participants", "content", "createdAt"]
     },
     "UserProfile": {
       "title": "User Profile",
@@ -23,6 +26,19 @@
         "avatarUrl": { "type": "string", "description": "아바타 이미지 URL" }
       },
       "required": ["username"]
+    },
+    "Group": {
+      "title": "Group",
+      "description": "그룹 채팅방 정보",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "description": "그룹 이름" },
+        "avatarUrl": { "type": "string", "description": "그룹 아바타 URL" },
+        "members": { "type": "array", "items": { "type": "string" }, "description": "그룹 멤버 UID 목록" },
+        "createdBy": { "type": "string", "description": "생성자 UID" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["name", "members", "createdBy", "createdAt"]
     }
   },
   "auth": {
@@ -36,6 +52,10 @@
     "/messages/{messageId}": {
       "schema": "Message",
       "description": "실시간 채팅 메시지 저장소"
+    },
+    "/groups/{groupId}": {
+      "schema": "Group",
+      "description": "그룹 정보 저장소"
     }
   }
 }
