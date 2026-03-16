@@ -52,7 +52,7 @@ export default function ChatPage() {
   }, [db]);
   const { data: allUsers, isLoading: usersLoading } = useCollection(usersQuery);
 
-  // 내 친구 목록 가져오기
+  // 내 친구 목록 가져오기 (서브 컬렉션)
   const friendsQuery = useMemo(() => {
     if (!db || !user) return null;
     return query(collection(db, "users", user.uid, "friends"));
@@ -61,10 +61,11 @@ export default function ChatPage() {
 
   // 실제 친구 객체들만 필터링
   const friends = useMemo(() => {
-    if (!allUsers || !friendsListData) return [];
+    if (!allUsers || !friendsListData || !user) return [];
     const friendIds = friendsListData.map((f: any) => f.id);
-    return allUsers.filter(u => friendIds.includes(u.id));
-  }, [allUsers, friendsListData]);
+    // 나 자신은 친구 목록에서 제외하고, 추가된 사람만 필터링
+    return allUsers.filter(u => u.id !== user.uid && friendIds.includes(u.id));
+  }, [allUsers, friendsListData, user]);
 
   // 메시지 가져오기
   const messagesQuery = useMemo(() => {
@@ -87,6 +88,7 @@ export default function ChatPage() {
         msg.participants && msg.participants.includes(selectedUserId)
       )
       .sort((a: any, b: any) => {
+        // 서버 타임스탬프가 아직 생성되지 않은 경우(null) 현재 시간을 기준으로 정렬
         const timeA = a.createdAt?.toMillis?.() || now;
         const timeB = b.createdAt?.toMillis?.() || now;
         return timeA - timeB;
