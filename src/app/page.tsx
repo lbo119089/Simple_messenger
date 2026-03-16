@@ -1,15 +1,13 @@
 
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { MessageSquare, ShieldCheck, Sparkles, Send } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useAuth, useFirestore } from "@/firebase";
-import { signInWithEmailAndPassword, createUserWithEmailAndPassword, updateProfile } from "firebase/auth";
-import { doc, setDoc } from "firebase/firestore";
+import { supabase } from "@/lib/supabase";
 import { useToast } from "@/hooks/use-toast";
 
 export default function Home() {
@@ -20,30 +18,40 @@ export default function Home() {
   const [loading, setLoading] = useState(false);
   
   const router = useRouter();
-  const auth = useAuth();
-  const db = useFirestore();
   const { toast } = useToast();
+
+  useEffect(() => {
+    const checkUser = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session) router.push("/chat");
+    };
+    checkUser();
+  }, [router]);
 
   const handleAuth = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!auth || !db) return;
-    
     setLoading(true);
+    
     try {
       if (isLogin) {
-        await signInWithEmailAndPassword(auth, email, password);
+        const { error } = await supabase.auth.signInWithPassword({ email, password });
+        if (error) throw error;
       } else {
-        const userCredential = await createUserWithEmailAndPassword(auth, email, password);
-        const user = userCredential.user;
-        
-        // Update Firebase Auth profile
-        await updateProfile(user, { displayName: username });
-        
-        // Create Firestore user document
-        await setDoc(doc(db, "users", user.uid), {
-          username,
-          avatarUrl: `https://picsum.photos/seed/${user.uid}/200/200`,
+        const { data, error: signUpError } = await supabase.auth.signUp({ 
+          email, 
+          password,
+          options: {
+            data: { username }
+          }
         });
+        if (signUpError) throw signUpError;
+        
+        if (data.user) {
+          const { error: profileError } = await supabase
+            .from('profiles')
+            .insert([{ id: data.user.id, username, avatar_url: `https://picsum.photos/seed/${data.user.id}/200/200` }]);
+          if (profileError) throw profileError;
+        }
       }
       router.push("/chat");
     } catch (error: any) {
@@ -75,8 +83,8 @@ export default function Home() {
             <div className="flex items-start gap-4">
               <ShieldCheck className="h-6 w-6 text-accent mt-1" />
               <div>
-                <h3 className="text-xl font-semibold text-white">안전한 1:1 대화</h3>
-                <p>Firebase Auth 기반의 보안으로 오직 두 사람만의 비공개 대화.</p>
+                <h3 className="text-xl font-semibold text-white">안전한 Supabase 보안</h3>
+                <p>강력한 RLS 정책으로 오직 본인만이 대화 내용을 확인할 수 있습니다.</p>
               </div>
             </div>
             <div className="flex items-start gap-4">
@@ -89,8 +97,8 @@ export default function Home() {
             <div className="flex items-start gap-4">
               <Send className="h-6 w-6 text-accent mt-1" />
               <div>
-                <h3 className="text-xl font-semibold text-white">실시간 연결</h3>
-                <p>지연 없는 실시간 메시지 전송으로 끊김 없는 대화를 즐기세요.</p>
+                <h3 className="text-xl font-semibold text-white">실시간 동기화</h3>
+                <p>Supabase Realtime을 통해 지연 없는 대화를 즐기세요.</p>
               </div>
             </div>
           </div>

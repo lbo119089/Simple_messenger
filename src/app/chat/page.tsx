@@ -11,131 +11,137 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Send, Phone, Video, Info, MoreVertical, MessageSquarePlus } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { 
-  useFirestore, 
-  useUser, 
-  useCollection, 
-  useMemoFirebase,
-  useAuth
-} from "@/firebase";
-import { 
-  collection, 
-  query, 
-  where, 
-  orderBy, 
-  addDoc, 
-  serverTimestamp 
-} from "firebase/firestore";
-import { signOut } from "firebase/auth";
-import { errorEmitter } from '@/firebase/error-emitter';
-import { FirestorePermissionError } from '@/firebase/errors';
+import { supabase } from "@/lib/supabase";
+import { useToast } from "@/hooks/use-toast";
 
 export default function ChatPage() {
   const router = useRouter();
-  const db = useFirestore();
-  const auth = useAuth();
-  const { user, isLoading: isUserLoading } = useUser();
+  const { toast } = useToast();
+  const [user, setUser] = useState<any>(null);
+  const [profiles, setProfiles] = useState<any[]>([]);
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
+  const [messages, setMessages] = useState<any[]>([]);
   const [inputValue, setInputValue] = useState("");
+  const [loading, setLoading] = useState(true);
   const scrollRef = useRef<HTMLDivElement>(null);
 
-  // 모든 사용자 목록 가져오기 (대화 상대 선택용)
-  const usersQuery = useMemoFirebase(() => {
-    if (!db) return null;
-    return collection(db, "users");
-  }, [db]);
-  const { data: allUsers } = useCollection(usersQuery);
+  useEffect(() => {
+    const fetchSession = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        router.push("/");
+      } else {
+        setUser(session.user);
+        fetchProfiles();
+      }
+      setLoading(false);
+    };
+    fetchSession();
+  }, [router]);
+
+  const fetchProfiles = async () => {
+    const { data, error } = await supabase.from('profiles').select('*');
+    if (error) console.error(error);
+    else setProfiles(data);
+  };
 
   const conversations = useMemo(() => {
-    if (!allUsers || !user) return [];
-    return allUsers
-      .filter(u => u.id !== user.uid)
-      .map(u => ({
+    if (!profiles || !user) return [];
+    return profiles
+      .filter(p => p.id !== user.id)
+      .map(p => ({
         other_user: {
-          id: u.id,
-          username: u.username || "알 수 없음",
-          avatar_url: u.avatarUrl || `https://picsum.photos/seed/${u.id}/200/200`,
+          id: p.id,
+          username: p.username || "알 수 없음",
+          avatar_url: p.avatar_url || `https://picsum.photos/seed/${p.id}/200/200`,
         },
         last_message: { content: "대화를 시작해보세요.", created_at: new Date().toISOString() },
         unread: false,
       }));
-  }, [allUsers, user]);
+  }, [profiles, user]);
 
-  // 선택된 대화의 메시지 실시간 감시
-  const messagesQuery = useMemoFirebase(() => {
-    if (!db || !user || !selectedUserId) return null;
-    return query(
-      collection(db, "messages"),
-      where("participants", "array-contains", user.uid),
-      orderBy("createdAt", "asc")
-    );
-  }, [db, user, selectedUserId]);
+  useEffect(() => {
+    if (!selectedUserId || !user) return;
 
-  const { data: rawMessages } = useCollection(messagesQuery);
+    const fetchMessages = async () => {
+      const { data, error } = await supabase
+        .from('messages')
+        .select('*')
+        .or(`and(sender_id.eq.${user.id},receiver_id.eq.${selectedUserId}),and(sender_id.eq.${selectedUserId},receiver_id.eq.${user.id})`)
+        .order('created_at', { ascending: true });
+      
+      if (error) console.error(error);
+      else setMessages(data || []);
+    };
 
-  // 현재 선택된 상대와의 메시지만 필터링
-  const filteredMessages = useMemo(() => {
-    if (!rawMessages || !selectedUserId) return [];
-    return rawMessages.filter(m => 
-      (m.senderId === user?.uid && m.receiverId === selectedUserId) ||
-      (m.senderId === selectedUserId && m.receiverId === user?.uid)
-    );
-  }, [rawMessages, selectedUserId, user]);
+    fetchMessages();
+
+    // Supabase Realtime Subscription
+    const channel = supabase
+      .channel(`chat-${selectedUserId}`)
+      .on('postgres_changes', { 
+        event: 'INSERT', 
+        schema: 'public', 
+        table: 'messages',
+        filter: `sender_id=in.(${user.id},${selectedUserId}),receiver_id=in.(${user.id},${selectedUserId})`
+      }, (payload) => {
+        setMessages((prev) => [...prev, payload.new]);
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [selectedUserId, user]);
 
   useEffect(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
-  }, [filteredMessages]);
+  }, [messages]);
 
-  const handleSendMessage = (content: string) => {
-    if (!content.trim() || !selectedUserId || !user || !db) return;
+  const handleSendMessage = async (content: string) => {
+    if (!content.trim() || !selectedUserId || !user) return;
     
-    const messageData = {
-      senderId: user.uid,
-      receiverId: selectedUserId,
-      participants: [user.uid, selectedUserId],
-      content,
-      createdAt: serverTimestamp(),
-    };
-    
-    addDoc(collection(db, "messages"), messageData)
-      .catch(async (err) => {
-        const permissionError = new FirestorePermissionError({
-          path: 'messages',
-          operation: 'create',
-          requestResourceData: messageData,
-        });
-        errorEmitter.emit('permission-error', permissionError);
+    const { error } = await supabase
+      .from('messages')
+      .insert([
+        { 
+          sender_id: user.id, 
+          receiver_id: selectedUserId, 
+          content: content.trim() 
+        }
+      ]);
+
+    if (error) {
+      toast({
+        variant: "destructive",
+        title: "전송 실패",
+        description: error.message,
       });
-
-    setInputValue("");
+    } else {
+      setInputValue("");
+    }
   };
 
   const handleLogout = async () => {
-    if (auth) {
-      await signOut(auth);
-      router.push("/");
-    }
+    await supabase.auth.signOut();
+    router.push("/");
   };
 
   const selectedUser = conversations.find(c => c.other_user.id === selectedUserId)?.other_user;
 
-  const aiMessageFormat = filteredMessages.slice(-5).map(m => ({
-    sender: m.senderId === user?.uid ? "user" as const : "other" as const,
+  const aiMessageFormat = messages.slice(-5).map(m => ({
+    sender: m.sender_id === user?.id ? "user" as const : "other" as const,
     content: m.content
   }));
 
-  if (isUserLoading) return <div className="flex h-screen items-center justify-center">로딩 중...</div>;
-  if (!user) {
-    router.push("/");
-    return null;
-  }
+  if (loading) return <div className="flex h-screen items-center justify-center">로딩 중...</div>;
 
   return (
     <div className="flex h-screen w-full bg-background overflow-hidden">
       <ChatSidebar
-        currentUserId={user.uid}
+        currentUserId={user?.id}
         conversations={conversations}
         selectedUserId={selectedUserId}
         onSelectUser={setSelectedUserId}
@@ -171,18 +177,18 @@ export default function ChatPage() {
 
             <ScrollArea className="flex-1 p-6 custom-scrollbar" viewportRef={scrollRef}>
               <div className="flex flex-col gap-1 max-w-4xl mx-auto">
-                {filteredMessages.length === 0 ? (
+                {messages.length === 0 ? (
                   <div className="flex flex-col items-center justify-center h-full pt-20 text-muted-foreground">
                     <MessageSquarePlus className="h-12 w-12 mb-4 opacity-20" />
                     <p>메시지를 보내 대화를 시작해보세요!</p>
                   </div>
                 ) : (
-                  filteredMessages.map((msg) => (
+                  messages.map((msg) => (
                     <MessageBubble
                       key={msg.id}
                       content={msg.content}
-                      timestamp={msg.createdAt?.toDate?.()?.toISOString() || new Date().toISOString()}
-                      isUser={msg.senderId === user.uid}
+                      timestamp={msg.created_at}
+                      isUser={msg.sender_id === user.id}
                     />
                   ))
                 )}
