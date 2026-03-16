@@ -11,7 +11,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Send, Phone, Video, Info, MoreVertical, MessageSquarePlus, Loader2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useAuth, useFirestore, useUser, useCollection } from "@/firebase";
-import { collection, query, where, orderBy, addDoc, serverTimestamp } from "firebase/firestore";
+import { collection, query, where, addDoc, serverTimestamp } from "firebase/firestore";
 import { signOut } from "firebase/auth";
 import { useToast } from "@/hooks/use-toast";
 
@@ -42,22 +42,29 @@ export default function ChatPage() {
   }, [db]);
   const { data: usersData, isLoading: usersLoading } = useCollection(usersQuery);
 
+  // 인덱스 오류를 피하기 위해 orderBy를 제거하고 클라이언트에서 정렬합니다.
   const messagesQuery = useMemo(() => {
     if (!db || !user || !selectedUserId) return null;
     return query(
       collection(db, "messages"),
-      where("participants", "array-contains", user.uid),
-      orderBy("createdAt", "asc")
+      where("participants", "array-contains", user.uid)
     );
   }, [db, user, selectedUserId]);
   
   const { data: rawMessages } = useCollection(messagesQuery);
 
+  // 선택된 사용자와의 메시지만 필터링하고 시간순으로 정렬합니다.
   const messages = useMemo(() => {
     if (!rawMessages || !selectedUserId) return [];
-    return rawMessages.filter((msg: any) => 
-      msg.participants && msg.participants.includes(selectedUserId)
-    );
+    return rawMessages
+      .filter((msg: any) => 
+        msg.participants && msg.participants.includes(selectedUserId)
+      )
+      .sort((a: any, b: any) => {
+        const timeA = a.createdAt?.toMillis?.() || 0;
+        const timeB = b.createdAt?.toMillis?.() || 0;
+        return timeA - timeB;
+      });
   }, [rawMessages, selectedUserId]);
 
   useEffect(() => {
@@ -81,6 +88,7 @@ export default function ChatPage() {
         createdAt: serverTimestamp()
       });
     } catch (error: any) {
+      console.error("메시지 전송 실패:", error);
       toast({
         variant: "destructive",
         title: "전송 실패",
