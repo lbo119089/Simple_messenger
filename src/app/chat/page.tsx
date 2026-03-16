@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { Send, Phone, Video, Info, MoreVertical, MessageSquarePlus, Loader2, Users } from "lucide-react";
+import { Send, Info, MoreVertical, MessageSquarePlus, Loader2, Users } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useAuth, useFirestore, useUser, useCollection, useDoc } from "@/firebase";
 import { collection, query, where, addDoc, serverTimestamp, doc } from "firebase/firestore";
@@ -219,8 +219,6 @@ export default function ChatPage() {
                 </div>
               </div>
               <div className="flex items-center gap-2">
-                <Button variant="ghost" size="icon"><Phone className="h-5 w-5 text-muted-foreground" /></Button>
-                <Button variant="ghost" size="icon"><Video className="h-5 w-5 text-muted-foreground" /></Button>
                 <Button variant="ghost" size="icon"><Info className="h-5 w-5 text-muted-foreground" /></Button>
                 <Button variant="ghost" size="icon"><MoreVertical className="h-5 w-5 text-muted-foreground" /></Button>
               </div>
