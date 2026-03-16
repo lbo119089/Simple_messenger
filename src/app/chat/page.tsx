@@ -9,16 +9,18 @@ import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription, SheetTrigger } from "@/components/ui/sheet";
-import { Send, Info, MoreVertical, MessageSquarePlus, Loader2, Users, Search, X, ChevronUp, ChevronDown, User } from "lucide-react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogTrigger } from "@/components/ui/dialog";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Send, Info, MoreVertical, MessageSquarePlus, Loader2, Users, Search, X, ChevronUp, ChevronDown, User, UserPlus } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useAuth, useFirestore, useUser, useCollection, useDoc, useMemoFirebase } from "@/firebase";
-import { collection, query, where, addDoc, serverTimestamp, doc, limit } from "firebase/firestore";
+import { collection, query, where, addDoc, serverTimestamp, doc, limit, updateDoc, arrayUnion, arrayRemove } from "firebase/firestore";
 import { signOut } from "firebase/auth";
 import { useToast } from "@/hooks/use-toast";
 import { Separator } from "@/components/ui/separator";
 
-const INITIAL_MESSAGE_LIMIT = 100;
-const LOAD_MORE_STEP = 50;
+const INITIAL_MESSAGE_LIMIT = 50;
+const LOAD_MORE_STEP = 30;
 
 export default function ChatPage() {
   const router = useRouter();
@@ -37,6 +39,11 @@ export default function ChatPage() {
   
   const [messageLimit, setMessageLimit] = useState(INITIAL_MESSAGE_LIMIT);
   const [isInitialLoad, setIsInitialLoad] = useState(true);
+
+  // 초대 관련 상태
+  const [isInviteOpen, setIsInviteOpen] = useState(false);
+  const [selectedFriendsToInvite, setSelectedFriendsToInvite] = useState<string[]>([]);
+  const [isInviting, setIsInviting] = useState(false);
   
   const scrollRef = useRef<HTMLDivElement>(null);
   const topObserverRef = useRef<HTMLDivElement>(null);
@@ -111,8 +118,15 @@ export default function ChatPage() {
     return [];
   }, [selectedChat, allUsers, user, selectedInfo]);
 
+  // 초대 가능한 친구 목록 (현재 그룹에 없는 친구들)
+  const invitableFriends = useMemo(() => {
+    if (selectedChat?.type !== "group" || !selectedInfo || !friends) return [];
+    return friends.filter(f => !selectedInfo.members.includes(f.id));
+  }, [selectedChat, selectedInfo, friends]);
+
   const messagesQuery = useMemoFirebase(() => {
     if (!db || !user || !selectedChat) return null;
+    // 인덱스 문제 방지를 위해 단순 쿼리 후 클라이언트 필터링/정렬 방식 유지
     return query(
       collection(db, "messages"),
       where("participants", "array-contains", user.uid),
@@ -135,8 +149,8 @@ export default function ChatPage() {
     });
 
     return [...filtered].sort((a: any, b: any) => {
-      const timeA = a.createdAt?.toMillis?.() || a.createdAt?.seconds * 1000 || 0;
-      const timeB = b.createdAt?.toMillis?.() || b.createdAt?.seconds * 1000 || 0;
+      const timeA = a.createdAt?.toMillis?.() || (a.createdAt?.seconds ? a.createdAt.seconds * 1000 : 0);
+      const timeB = b.createdAt?.toMillis?.() || (b.createdAt?.seconds ? b.createdAt.seconds * 1000 : 0);
       return timeA - timeB;
     });
   }, [rawMessages, selectedChat]);
@@ -196,10 +210,8 @@ export default function ChatPage() {
       };
 
       if (selectedChat.type === "group") {
-        const group = userGroups?.find(g => g.id === selectedChat.id);
-        if (!group) return;
         messageData.groupId = selectedChat.id;
-        messageData.participants = group.members;
+        messageData.participants = selectedInfo.members;
       } else {
         messageData.receiverId = selectedChat.id;
         messageData.participants = [user.uid, selectedChat.id];
@@ -215,6 +227,46 @@ export default function ChatPage() {
         description: error.message,
       });
       setInputValue(text);
+    }
+  };
+
+  const handleInviteFriends = async () => {
+    if (!db || !selectedChat || selectedChat.type !== "group" || selectedFriendsToInvite.length === 0) return;
+    
+    setIsInviting(true);
+    try {
+      const groupRef = doc(db, "groups", selectedChat.id);
+      await updateDoc(groupRef, {
+        members: arrayUnion(...selectedFriendsToInvite)
+      });
+      
+      toast({ title: "친구 초대 완료", description: `${selectedFriendsToInvite.length}명의 친구를 초대했습니다.` });
+      setSelectedFriendsToInvite([]);
+      setIsInviteOpen(false);
+    } catch (error: any) {
+      toast({ variant: "destructive", title: "초대 실패", description: error.message });
+    } finally {
+      setIsInviting(false);
+    }
+  };
+
+  const handleLeaveChat = async () => {
+    if (!db || !selectedChat || !user) return;
+
+    try {
+      if (selectedChat.type === "group") {
+        const groupRef = doc(db, "groups", selectedChat.id);
+        await updateDoc(groupRef, {
+          members: arrayRemove(user.uid)
+        });
+        toast({ title: "대화방을 나갔습니다." });
+      } else {
+        // 개인 채팅은 목록에서 선택만 해제 (영구 삭제는 복잡하므로)
+        toast({ title: "대화 목록에서 제외되었습니다." });
+      }
+      setSelectedChat(null);
+    } catch (error: any) {
+      toast({ variant: "destructive", title: "오류 발생", description: error.message });
     }
   };
 
@@ -315,6 +367,53 @@ export default function ChatPage() {
                       
                       <div className="flex-1 overflow-y-auto">
                         <div className="p-6 space-y-6">
+                          {selectedChat.type === "group" && (
+                            <div>
+                              <Dialog open={isInviteOpen} onOpenChange={setIsInviteOpen}>
+                                <DialogTrigger asChild>
+                                  <Button className="w-full gap-2 mb-4" variant="secondary">
+                                    <UserPlus className="h-4 w-4" /> 친구 초대하기
+                                  </Button>
+                                </DialogTrigger>
+                                <DialogContent>
+                                  <DialogHeader><DialogTitle>그룹에 친구 초대</DialogTitle></DialogHeader>
+                                  <div className="py-4">
+                                    <ScrollArea className="h-60 border rounded-md p-2">
+                                      {invitableFriends.length > 0 ? (
+                                        invitableFriends.map(friend => (
+                                          <div 
+                                            key={friend.id} 
+                                            className="flex items-center gap-3 p-2 hover:bg-muted rounded-md cursor-pointer"
+                                            onClick={() => {
+                                              setSelectedFriendsToInvite(prev => 
+                                                prev.includes(friend.id) ? prev.filter(id => id !== friend.id) : [...prev, friend.id]
+                                              );
+                                            }}
+                                          >
+                                            <Checkbox checked={selectedFriendsToInvite.includes(friend.id)} />
+                                            <Avatar className="h-8 w-8">
+                                              <AvatarImage src={friend.avatarUrl} />
+                                              <AvatarFallback>{friend.username?.[0]}</AvatarFallback>
+                                            </Avatar>
+                                            <span className="text-sm font-medium">{friend.username}</span>
+                                          </div>
+                                        ))
+                                      ) : (
+                                        <div className="text-center py-10 text-sm text-muted-foreground">초대할 수 있는 친구가 없습니다.</div>
+                                      )}
+                                    </ScrollArea>
+                                  </div>
+                                  <DialogFooter>
+                                    <Button variant="outline" onClick={() => setIsInviteOpen(false)}>취소</Button>
+                                    <Button onClick={handleInviteFriends} disabled={isInviting || selectedFriendsToInvite.length === 0}>
+                                      {isInviting ? <Loader2 className="h-4 w-4 animate-spin" /> : "초대 완료"}
+                                    </Button>
+                                  </DialogFooter>
+                                </DialogContent>
+                              </Dialog>
+                            </div>
+                          )}
+
                           <div>
                             <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-4">참여 멤버 ({chatMembers.length})</h3>
                             <div className="space-y-4">
@@ -340,7 +439,11 @@ export default function ChatPage() {
                           
                           <div>
                             <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-4">채팅 설정</h3>
-                            <Button variant="outline" className="w-full justify-start text-destructive hover:text-destructive hover:bg-destructive/5 border-destructive/20">
+                            <Button 
+                              variant="outline" 
+                              className="w-full justify-start text-destructive hover:text-destructive hover:bg-destructive/5 border-destructive/20"
+                              onClick={handleLeaveChat}
+                            >
                               대화방 나가기
                             </Button>
                           </div>
