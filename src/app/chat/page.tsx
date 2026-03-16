@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { Send, Info, MoreVertical, MessageSquarePlus, Loader2, Users } from "lucide-react";
+import { Send, Info, MoreVertical, MessageSquarePlus, Loader2, Users, Search, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useAuth, useFirestore, useUser, useCollection, useDoc } from "@/firebase";
 import { collection, query, where, addDoc, serverTimestamp, doc } from "firebase/firestore";
@@ -26,6 +26,8 @@ export default function ChatPage() {
   const [inputValue, setInputValue] = useState("");
   const [isMounted, setIsMounted] = useState(false);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
+  const [isSearchMode, setIsSearchMode] = useState(false);
+  const [messageSearchQuery, setMessageSearchQuery] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -93,7 +95,7 @@ export default function ChatPage() {
   
   const { data: rawMessages } = useCollection(messagesQuery);
 
-  const messages = useMemo(() => {
+  const allMessagesInChat = useMemo(() => {
     if (!rawMessages || !selectedChat || !user) return [];
     
     const now = Date.now();
@@ -112,11 +114,24 @@ export default function ChatPage() {
       });
   }, [rawMessages, selectedChat, user]);
 
+  const messages = useMemo(() => {
+    if (!messageSearchQuery.trim() || !isSearchMode) return allMessagesInChat;
+    return allMessagesInChat.filter((msg: any) => 
+      msg.content.toLowerCase().includes(messageSearchQuery.toLowerCase())
+    );
+  }, [allMessagesInChat, messageSearchQuery, isSearchMode]);
+
   useEffect(() => {
-    if (scrollRef.current) {
+    if (scrollRef.current && !isSearchMode) {
       scrollRef.current.scrollIntoView({ behavior: "smooth" });
     }
-  }, [messages]);
+  }, [messages, isSearchMode]);
+
+  // 채팅방 변경 시 검색 모드 초기화
+  useEffect(() => {
+    setIsSearchMode(false);
+    setMessageSearchQuery("");
+  }, [selectedChat]);
 
   const handleSendMessage = async (content: string) => {
     const text = content.trim();
@@ -180,7 +195,7 @@ export default function ChatPage() {
     );
   }
 
-  const aiMessageFormat = messages.slice(-5).map((m: any) => ({
+  const aiMessageFormat = allMessagesInChat.slice(-5).map((m: any) => ({
     sender: m.senderId === user?.uid ? "user" as const : "other" as const,
     content: m.content
   }));
@@ -201,35 +216,63 @@ export default function ChatPage() {
       <div className="flex-1 flex flex-col min-w-0">
         {selectedChat && selectedInfo ? (
           <>
-            <header className="h-16 flex items-center justify-between px-6 bg-white border-b border-border z-10">
-              <div className="flex items-center gap-3">
-                <Avatar className="h-10 w-10">
+            <header className="h-16 flex items-center justify-between px-6 bg-white border-b border-border z-10 shrink-0">
+              <div className="flex items-center gap-3 overflow-hidden">
+                <Avatar className="h-10 w-10 shrink-0">
                   <AvatarImage src={selectedInfo.avatarUrl} />
                   <AvatarFallback className="bg-primary/10 text-primary">
                     {selectedChat.type === "group" ? <Users className="h-5 w-5" /> : (selectedInfo.username ? selectedInfo.username[0].toUpperCase() : "?")}
                   </AvatarFallback>
                 </Avatar>
-                <div>
-                  <h2 className="font-bold text-lg leading-none">
+                <div className="overflow-hidden">
+                  <h2 className="font-bold text-lg leading-none truncate">
                     {selectedChat.type === "group" ? selectedInfo.name : selectedInfo.username}
                   </h2>
-                  <p className="text-xs text-muted-foreground mt-1">
+                  <p className="text-xs text-muted-foreground mt-1 truncate">
                     {selectedChat.type === "group" ? `멤버 ${selectedInfo.members?.length}명` : "현재 활동 중"}
                   </p>
                 </div>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1">
+                <Button 
+                  variant="ghost" 
+                  size="icon" 
+                  onClick={() => setIsSearchMode(!isSearchMode)}
+                  className={isSearchMode ? "text-primary bg-primary/10" : "text-muted-foreground"}
+                >
+                  <Search className="h-5 w-5" />
+                </Button>
                 <Button variant="ghost" size="icon"><Info className="h-5 w-5 text-muted-foreground" /></Button>
                 <Button variant="ghost" size="icon"><MoreVertical className="h-5 w-5 text-muted-foreground" /></Button>
               </div>
             </header>
+
+            {isSearchMode && (
+              <div className="px-6 py-2 bg-muted/30 border-b border-border animate-in slide-in-from-top duration-200">
+                <div className="relative max-w-4xl mx-auto flex items-center gap-2">
+                  <div className="relative flex-1">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                    <Input 
+                      placeholder="대화 내용 검색..." 
+                      className="pl-9 h-9 bg-white border-muted"
+                      value={messageSearchQuery}
+                      onChange={(e) => setMessageSearchQuery(e.target.value)}
+                      autoFocus
+                    />
+                  </div>
+                  <Button variant="ghost" size="sm" onClick={() => { setIsSearchMode(false); setMessageSearchQuery(""); }}>
+                    <X className="h-4 w-4 mr-1" /> 닫기
+                  </Button>
+                </div>
+              </div>
+            )}
 
             <ScrollArea className="flex-1 p-6 custom-scrollbar">
               <div className="flex flex-col gap-1 max-w-4xl mx-auto">
                 {messages.length === 0 ? (
                   <div className="flex flex-col items-center justify-center h-full pt-20 text-muted-foreground">
                     <MessageSquarePlus className="h-12 w-12 mb-4 opacity-20" />
-                    <p>메시지를 보내 대화를 시작해보세요!</p>
+                    <p>{isSearchMode ? "검색 결과가 없습니다." : "메시지를 보내 대화를 시작해보세요!"}</p>
                   </div>
                 ) : (
                   messages.map((msg: any) => (
@@ -247,7 +290,7 @@ export default function ChatPage() {
               </div>
             </ScrollArea>
 
-            <footer className="bg-white/80 backdrop-blur-md border-t border-border">
+            <footer className="bg-white/80 backdrop-blur-md border-t border-border shrink-0">
               <AiSuggestions 
                 messages={aiMessageFormat} 
                 onSelect={(suggestion) => handleSendMessage(suggestion)} 
