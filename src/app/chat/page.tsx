@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { Send, Phone, Video, Info, MoreVertical, MessageSquarePlus } from "lucide-react";
+import { Send, Phone, Video, Info, MoreVertical, MessageSquarePlus, Loader2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useAuth, useFirestore, useUser, useCollection } from "@/firebase";
 import { collection, query, where, orderBy, addDoc, serverTimestamp } from "firebase/firestore";
@@ -30,6 +30,12 @@ export default function ChatPage() {
     setIsMounted(true);
   }, []);
 
+  useEffect(() => {
+    if (isMounted && !userLoading && !user) {
+      router.push("/");
+    }
+  }, [user, userLoading, isMounted, router]);
+
   const usersQuery = useMemo(() => {
     if (!db) return null;
     return query(collection(db, "users"));
@@ -50,7 +56,7 @@ export default function ChatPage() {
   const messages = useMemo(() => {
     if (!rawMessages || !selectedUserId) return [];
     return rawMessages.filter((msg: any) => 
-      msg.participants.includes(selectedUserId)
+      msg.participants && msg.participants.includes(selectedUserId)
     );
   }, [rawMessages, selectedUserId]);
 
@@ -86,8 +92,12 @@ export default function ChatPage() {
 
   const handleLogout = async () => {
     if (auth) {
-      await signOut(auth);
-      router.push("/");
+      try {
+        await signOut(auth);
+        router.push("/");
+      } catch (error: any) {
+        console.error("Logout failed", error);
+      }
     }
   };
 
@@ -95,7 +105,7 @@ export default function ChatPage() {
     return (
       <div className="flex h-screen items-center justify-center bg-background">
         <div className="flex flex-col items-center gap-4">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
+          <Loader2 className="h-10 w-10 text-primary animate-spin" />
           <p className="text-muted-foreground animate-pulse">대화 불러오는 중...</p>
         </div>
       </div>
@@ -158,7 +168,7 @@ export default function ChatPage() {
                     <MessageBubble
                       key={msg.id}
                       content={msg.content}
-                      timestamp={msg.createdAt?.toDate?.()?.toISOString() || new Date().toISOString()}
+                      timestamp={msg.createdAt?.toDate ? msg.createdAt.toDate().toISOString() : new Date().toISOString()}
                       isUser={msg.senderId === user?.uid}
                     />
                   ))
@@ -179,7 +189,12 @@ export default function ChatPage() {
                     className="pr-12 h-12 bg-background border-none ring-offset-background focus-visible:ring-1 text-base rounded-2xl"
                     value={inputValue}
                     onChange={(e) => setInputValue(e.target.value)}
-                    onKeyDown={(e) => e.key === "Enter" && handleSendMessage(inputValue)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && !e.shiftKey) {
+                        e.preventDefault();
+                        handleSendMessage(inputValue);
+                      }
+                    }}
                   />
                   <div className="absolute right-2 top-1/2 -translate-y-1/2">
                     <Button 

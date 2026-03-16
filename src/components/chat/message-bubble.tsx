@@ -1,7 +1,7 @@
 "use client";
 
 import { cn } from "@/lib/utils";
-import { format } from "date-fns";
+import { format, isValid } from "date-fns";
 
 interface MessageBubbleProps {
   content: string;
@@ -10,6 +10,9 @@ interface MessageBubbleProps {
 }
 
 export function MessageBubble({ content, timestamp, isUser }: MessageBubbleProps) {
+  const date = new Date(timestamp);
+  const formattedTime = isValid(date) ? format(date, "HH:mm") : "--:--";
+
   return (
     <div
       className={cn(
@@ -30,7 +33,7 @@ export function MessageBubble({ content, timestamp, isUser }: MessageBubbleProps
             isUser ? "text-right text-primary-foreground/80" : "text-left text-muted-foreground"
           )}
         >
-          {format(new Date(timestamp), "HH:mm")}
+          {formattedTime}
         </div>
       </div>
     </div>
