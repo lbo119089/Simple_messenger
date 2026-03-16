@@ -34,10 +34,12 @@ export default function Home() {
   const handleAuth = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!auth || !db) {
+      const errorMsg = "Firebase가 초기화되지 않았습니다. API 키를 확인해주세요.";
+      console.error("Auth Error:", errorMsg);
       toast({
         variant: "destructive",
         title: "연결 오류",
-        description: "Firebase가 초기화되지 않았습니다. API 키를 확인해주세요.",
+        description: errorMsg,
       });
       return;
     }
@@ -63,10 +65,17 @@ export default function Home() {
       }
       router.push("/chat");
     } catch (error: any) {
+      console.error("Authentication failed:", error);
+      
+      let message = error.message || "인증에 실패했습니다.";
+      if (error.code === "auth/configuration-not-found") {
+        message = "Firebase 콘솔에서 이메일/비밀번호 로그인을 활성화해야 합니다.";
+      }
+
       toast({
         variant: "destructive",
         title: "오류 발생",
-        description: error.message || "인증에 실패했습니다.",
+        description: message,
       });
     } finally {
       setLoading(false);
