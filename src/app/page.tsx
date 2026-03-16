@@ -1,17 +1,15 @@
-
 "use client";
 
 import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
-import { MessageSquare, ShieldCheck, Sparkles, Send, AlertCircle, User, Check, ScrollText } from "lucide-react";
+import { MessageSquare, ShieldCheck, Send, AlertCircle, User, Check, ScrollText } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useAuth, useFirestore, useUser } from "@/firebase";
 import { signInWithEmailAndPassword, createUserWithEmailAndPassword, updateProfile } from "firebase/auth";
 import { doc, setDoc } from "firebase/firestore";
 import { useToast } from "@/hooks/use-toast";
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { PlaceHolderImages } from "@/lib/placeholder-images";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { cn } from "@/lib/utils";
@@ -103,13 +101,24 @@ export default function Home() {
             <h1 className="text-4xl md:text-5xl font-bold tracking-tight">바이브챗</h1>
           </div>
           <h2 className="text-2xl md:text-3xl font-medium mb-6 leading-tight">
-            더 많은 아바타와 함께 스마트한 대화를 시작하세요
+            나만의 아바타와 함께 자유로운 대화를 시작하세요
           </h2>
           <div className="space-y-6 text-primary-foreground/80">
             <div className="flex items-start gap-4">
-              <Sparkles className="h-6 w-6 text-accent mt-1" />
+              <div className="p-2 bg-white/10 rounded-lg">
+                <Check className="h-5 w-5 text-accent" />
+              </div>
               <div>
-                <h3 className="text-xl font-semibold text-white">나만의 유니크한 프로필</h3>
+                <h3 className="text-xl font-semibold text-white">실시간 메시징</h3>
+                <p>Firebase 기반의 강력하고 빠른 실시간 대화 환경을 제공합니다.</p>
+              </div>
+            </div>
+            <div className="flex items-start gap-4">
+              <div className="p-2 bg-white/10 rounded-lg">
+                <Check className="h-5 w-5 text-accent" />
+              </div>
+              <div>
+                <h3 className="text-xl font-semibold text-white">나만의 프로필</h3>
                 <p>12가지 이상의 다양한 아바타 중에서 나를 가장 잘 표현하는 이미지를 선택해보세요.</p>
               </div>
             </div>

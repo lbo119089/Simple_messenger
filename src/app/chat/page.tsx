@@ -3,7 +3,6 @@
 import { useState, useEffect, useRef, useMemo } from "react";
 import { ChatSidebar } from "@/components/chat/sidebar";
 import { MessageBubble } from "@/components/chat/message-bubble";
-import { AiSuggestions } from "@/components/chat/ai-suggestions";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -26,7 +25,6 @@ export default function ChatPage() {
   const [isMounted, setIsMounted] = useState(false);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   
-  // 검색 관련 상태
   const [isSearchMode, setIsSearchMode] = useState(false);
   const [messageSearchQuery, setMessageSearchQuery] = useState("");
   const [currentSearchMatchIndex, setCurrentSearchMatchIndex] = useState(-1);
@@ -110,7 +108,6 @@ export default function ChatPage() {
       });
   }, [rawMessages, selectedChat, user]);
 
-  // 검색 결과 인덱스 목록 추출
   const searchMatchIndices = useMemo(() => {
     if (!messageSearchQuery.trim() || !isSearchMode) return [];
     return allMessagesInChat
@@ -118,7 +115,6 @@ export default function ChatPage() {
       .filter(index => index !== -1);
   }, [allMessagesInChat, messageSearchQuery, isSearchMode]);
 
-  // 검색어가 바뀔 때 첫 번째 결과로 이동
   useEffect(() => {
     if (searchMatchIndices.length > 0) {
       setCurrentSearchMatchIndex(0);
@@ -212,11 +208,6 @@ export default function ChatPage() {
       </div>
     );
   }
-
-  const aiMessageFormat = allMessagesInChat.slice(-5).map((m: any) => ({
-    sender: m.senderId === user?.uid ? "user" as const : "other" as const,
-    content: m.content
-  }));
 
   return (
     <div className="flex h-screen w-full bg-background overflow-hidden">
@@ -341,10 +332,6 @@ export default function ChatPage() {
             </ScrollArea>
 
             <footer className="bg-white/80 backdrop-blur-md border-t border-border shrink-0">
-              <AiSuggestions 
-                messages={aiMessageFormat} 
-                onSelect={(suggestion) => handleSendMessage(suggestion)} 
-              />
               <div className="p-4 flex items-center gap-3 max-w-4xl mx-auto">
                 <div className="flex-1 relative">
                   <Input
