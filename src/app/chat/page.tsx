@@ -1,4 +1,3 @@
-
 "use client";
 
 import { useState, useEffect, useRef, useMemo } from "react";
@@ -9,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { Send, Info, MoreVertical, MessageSquarePlus, Loader2, Users, Search, X } from "lucide-react";
+import { Send, Info, MoreVertical, MessageSquarePlus, Loader2, Users, Search, X, ChevronUp, ChevronDown } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useAuth, useFirestore, useUser, useCollection, useDoc } from "@/firebase";
 import { collection, query, where, addDoc, serverTimestamp, doc } from "firebase/firestore";
@@ -26,8 +25,12 @@ export default function ChatPage() {
   const [inputValue, setInputValue] = useState("");
   const [isMounted, setIsMounted] = useState(false);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
+  
+  // 검색 관련 상태
   const [isSearchMode, setIsSearchMode] = useState(false);
   const [messageSearchQuery, setMessageSearchQuery] = useState("");
+  const [currentSearchMatchIndex, setCurrentSearchMatchIndex] = useState(-1);
+  
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -40,21 +43,18 @@ export default function ChatPage() {
     }
   }, [user, userLoading, isMounted, router, isLoggingOut]);
 
-  // 내 프로필 정보
   const currentUserDocRef = useMemo(() => {
     if (!db || !user) return null;
     return doc(db, "users", user.uid);
   }, [db, user]);
   const { data: currentUserProfile } = useDoc(currentUserDocRef);
 
-  // 전체 사용자 목록
   const usersQuery = useMemo(() => {
     if (!db) return null;
     return query(collection(db, "users"));
   }, [db]);
   const { data: allUsers, isLoading: usersLoading } = useCollection(usersQuery);
 
-  // 내 친구 목록
   const friendsQuery = useMemo(() => {
     if (!db || !user) return null;
     return query(collection(db, "users", user.uid, "friends"));
@@ -67,14 +67,12 @@ export default function ChatPage() {
     return allUsers.filter(u => u.id !== user.uid && friendIds.includes(u.id));
   }, [allUsers, friendsListData, user]);
 
-  // 내가 속한 그룹 목록
   const groupsQuery = useMemo(() => {
     if (!db || !user) return null;
     return query(collection(db, "groups"), where("members", "array-contains", user.uid));
   }, [db, user]);
   const { data: userGroups } = useCollection(groupsQuery);
 
-  // 선택된 채팅 대상 정보 (개인 또는 그룹)
   const selectedInfo = useMemo(() => {
     if (!selectedChat) return null;
     if (selectedChat.type === "private") {
@@ -84,7 +82,6 @@ export default function ChatPage() {
     }
   }, [selectedChat, allUsers, userGroups]);
 
-  // 메시지 가져오기
   const messagesQuery = useMemo(() => {
     if (!db || !user || !selectedChat) return null;
     return query(
@@ -98,7 +95,6 @@ export default function ChatPage() {
   const allMessagesInChat = useMemo(() => {
     if (!rawMessages || !selectedChat || !user) return [];
     
-    const now = Date.now();
     return rawMessages
       .filter((msg: any) => {
         if (selectedChat.type === "group") {
@@ -108,29 +104,39 @@ export default function ChatPage() {
         }
       })
       .sort((a: any, b: any) => {
-        const timeA = a.createdAt?.toMillis?.() || now;
-        const timeB = b.createdAt?.toMillis?.() || now;
+        const timeA = a.createdAt?.toMillis?.() || Date.now();
+        const timeB = b.createdAt?.toMillis?.() || Date.now();
         return timeA - timeB;
       });
   }, [rawMessages, selectedChat, user]);
 
-  const messages = useMemo(() => {
-    if (!messageSearchQuery.trim() || !isSearchMode) return allMessagesInChat;
-    return allMessagesInChat.filter((msg: any) => 
-      msg.content.toLowerCase().includes(messageSearchQuery.toLowerCase())
-    );
+  // 검색 결과 인덱스 목록 추출
+  const searchMatchIndices = useMemo(() => {
+    if (!messageSearchQuery.trim() || !isSearchMode) return [];
+    return allMessagesInChat
+      .map((msg, index) => msg.content.toLowerCase().includes(messageSearchQuery.toLowerCase()) ? index : -1)
+      .filter(index => index !== -1);
   }, [allMessagesInChat, messageSearchQuery, isSearchMode]);
+
+  // 검색어가 바뀔 때 첫 번째 결과로 이동
+  useEffect(() => {
+    if (searchMatchIndices.length > 0) {
+      setCurrentSearchMatchIndex(0);
+    } else {
+      setCurrentSearchMatchIndex(-1);
+    }
+  }, [searchMatchIndices]);
 
   useEffect(() => {
     if (scrollRef.current && !isSearchMode) {
       scrollRef.current.scrollIntoView({ behavior: "smooth" });
     }
-  }, [messages, isSearchMode]);
+  }, [allMessagesInChat, isSearchMode]);
 
-  // 채팅방 변경 시 검색 모드 초기화
   useEffect(() => {
     setIsSearchMode(false);
     setMessageSearchQuery("");
+    setCurrentSearchMatchIndex(-1);
   }, [selectedChat]);
 
   const handleSendMessage = async (content: string) => {
@@ -180,6 +186,18 @@ export default function ChatPage() {
         setIsLoggingOut(false);
       }
     }
+  };
+
+  const navigateSearch = (direction: 'next' | 'prev') => {
+    if (searchMatchIndices.length === 0) return;
+    
+    setCurrentSearchMatchIndex(prev => {
+      if (direction === 'next') {
+        return (prev + 1) % searchMatchIndices.length;
+      } else {
+        return (prev - 1 + searchMatchIndices.length) % searchMatchIndices.length;
+      }
+    });
   };
 
   if (!isMounted || userLoading || usersLoading || !user || isLoggingOut) {
@@ -249,40 +267,72 @@ export default function ChatPage() {
 
             {isSearchMode && (
               <div className="px-6 py-2 bg-muted/30 border-b border-border animate-in slide-in-from-top duration-200">
-                <div className="relative max-w-4xl mx-auto flex items-center gap-2">
+                <div className="relative max-w-4xl mx-auto flex items-center gap-3">
                   <div className="relative flex-1">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                     <Input 
                       placeholder="대화 내용 검색..." 
-                      className="pl-9 h-9 bg-white border-muted"
+                      className="pl-9 h-10 bg-white border-muted pr-20"
                       value={messageSearchQuery}
                       onChange={(e) => setMessageSearchQuery(e.target.value)}
                       autoFocus
                     />
+                    {searchMatchIndices.length > 0 && (
+                      <div className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground font-medium">
+                        {currentSearchMatchIndex + 1} / {searchMatchIndices.length}
+                      </div>
+                    )}
                   </div>
-                  <Button variant="ghost" size="sm" onClick={() => { setIsSearchMode(false); setMessageSearchQuery(""); }}>
-                    <X className="h-4 w-4 mr-1" /> 닫기
-                  </Button>
+                  
+                  <div className="flex items-center gap-1">
+                    <Button 
+                      variant="outline" 
+                      size="icon" 
+                      className="h-10 w-10 bg-white"
+                      disabled={searchMatchIndices.length === 0}
+                      onClick={() => navigateSearch('prev')}
+                    >
+                      <ChevronUp className="h-4 w-4" />
+                    </Button>
+                    <Button 
+                      variant="outline" 
+                      size="icon" 
+                      className="h-10 w-10 bg-white"
+                      disabled={searchMatchIndices.length === 0}
+                      onClick={() => navigateSearch('next')}
+                    >
+                      <ChevronDown className="h-4 w-4" />
+                    </Button>
+                    <Button 
+                      variant="ghost" 
+                      size="sm" 
+                      onClick={() => { setIsSearchMode(false); setMessageSearchQuery(""); setCurrentSearchMatchIndex(-1); }}
+                    >
+                      <X className="h-4 w-4 mr-1" /> 닫기
+                    </Button>
+                  </div>
                 </div>
               </div>
             )}
 
             <ScrollArea className="flex-1 p-6 custom-scrollbar">
               <div className="flex flex-col gap-1 max-w-4xl mx-auto">
-                {messages.length === 0 ? (
+                {allMessagesInChat.length === 0 ? (
                   <div className="flex flex-col items-center justify-center h-full pt-20 text-muted-foreground">
                     <MessageSquarePlus className="h-12 w-12 mb-4 opacity-20" />
-                    <p>{isSearchMode ? "검색 결과가 없습니다." : "메시지를 보내 대화를 시작해보세요!"}</p>
+                    <p>메시지를 보내 대화를 시작해보세요!</p>
                   </div>
                 ) : (
-                  messages.map((msg: any) => (
+                  allMessagesInChat.map((msg: any, index: number) => (
                     <MessageBubble
                       key={msg.id}
+                      id={`msg-${index}`}
                       content={msg.content}
                       timestamp={msg.createdAt?.toDate ? msg.createdAt.toDate().toISOString() : new Date().toISOString()}
                       isUser={msg.senderId === user?.uid}
                       senderName={selectedChat.type === "group" ? msg.senderName : undefined}
                       senderAvatar={selectedChat.type === "group" ? msg.senderAvatar : undefined}
+                      isHighlighted={isSearchMode && currentSearchMatchIndex !== -1 && searchMatchIndices[currentSearchMatchIndex] === index}
                     />
                   ))
                 )}
