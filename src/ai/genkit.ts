@@ -1,7 +1,4 @@
-import {genkit} from 'genkit';
-import {googleAI} from '@genkit-ai/google-genai';
-
-export const ai = genkit({
-  plugins: [googleAI()],
-  model: 'googleai/gemini-2.5-flash',
-});
+/**
+ * @fileOverview 이 파일은 더 이상 사용되지 않습니다. AI 기능 제거됨.
+ */
+export const ai = null;
