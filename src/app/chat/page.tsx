@@ -16,7 +16,7 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { Send, Info, MoreVertical, MessageSquarePlus, Loader2, Users, Search, X, ChevronUp, ChevronDown, User, UserPlus, Download, Trash2, Bell, BellOff } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useAuth, useFirestore, useUser, useCollection, useDoc, useMemoFirebase } from "@/firebase";
-import { collection, query, where, addDoc, serverTimestamp, doc, limit, updateDoc, arrayUnion, arrayRemove, deleteDoc } from "firebase/firestore";
+import { collection, query, where, addDoc, serverTimestamp, doc, limit, updateDoc, arrayUnion, arrayRemove, deleteDoc, setDoc } from "firebase/firestore";
 import { signOut } from "firebase/auth";
 import { useToast } from "@/hooks/use-toast";
 import { Separator } from "@/components/ui/separator";
@@ -73,6 +73,24 @@ export default function ChatPage() {
     setCurrentSearchMatchIndex(-1);
     setIsMuted(false);
   }, [selectedChat]);
+
+  // 대화방 선택 시 또는 새로운 메시지 수신 시 읽음 처리
+  useEffect(() => {
+    if (!db || !user || !selectedChat) return;
+
+    const updateReadStatus = async () => {
+      try {
+        const readStatusRef = doc(db, "users", user.uid, "readStatus", selectedChat.id);
+        await setDoc(readStatusRef, {
+          lastReadAt: serverTimestamp()
+        }, { merge: true });
+      } catch (err) {
+        console.error("읽음 상태 업데이트 실패:", err);
+      }
+    };
+
+    updateReadStatus();
+  }, [db, user, selectedChat]);
 
   const currentUserDocRef = useMemoFirebase(() => {
     if (!db || !user) return null;
@@ -160,6 +178,17 @@ export default function ChatPage() {
       return timeA - timeB;
     });
   }, [rawMessages, selectedChat]);
+
+  // 새로운 메시지가 도착했을 때, 현재 선택된 방이면 즉시 읽음 처리 갱신
+  useEffect(() => {
+    if (allMessagesInChat.length > 0 && selectedChat && db && user) {
+      const lastMsg = allMessagesInChat[allMessagesInChat.length - 1];
+      if (lastMsg.senderId !== user.uid) {
+        const readStatusRef = doc(db, "users", user.uid, "readStatus", selectedChat.id);
+        setDoc(readStatusRef, { lastReadAt: serverTimestamp() }, { merge: true });
+      }
+    }
+  }, [allMessagesInChat, selectedChat, db, user]);
 
   useEffect(() => {
     if (!topObserverRef.current || messagesLoading) return;

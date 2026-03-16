@@ -10,10 +10,11 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
 import { PlaceHolderImages } from "@/lib/placeholder-images";
-import { useFirestore } from "@/firebase";
-import { doc, updateDoc, setDoc, deleteDoc, collection, addDoc, serverTimestamp } from "firebase/firestore";
+import { useFirestore, useCollection, useMemoFirebase } from "@/firebase";
+import { doc, updateDoc, setDoc, deleteDoc, collection, addDoc, serverTimestamp, query, where } from "firebase/firestore";
 import { useToast } from "@/hooks/use-toast";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Badge } from "@/components/ui/badge";
 
 interface ChatSidebarProps {
   currentUserId: string;
@@ -53,6 +54,44 @@ export function ChatSidebar({
   
   const db = useFirestore();
   const { toast } = useToast();
+
+  // 모든 메시지 수신 (읽지 않은 수 계산용)
+  const messagesQuery = useMemoFirebase(() => {
+    if (!db || !currentUserId) return null;
+    return query(collection(db, "messages"), where("participants", "array-contains", currentUserId));
+  }, [db, currentUserId]);
+  const { data: allRelevantMessages } = useCollection(messagesQuery);
+
+  // 사용자의 읽음 상태 정보 수신
+  const readStatusQuery = useMemoFirebase(() => {
+    if (!db || !currentUserId) return null;
+    return query(collection(db, "users", currentUserId, "readStatus"));
+  }, [db, currentUserId]);
+  const { data: readStatuses } = useCollection(readStatusQuery);
+
+  const unreadCounts = useMemo(() => {
+    if (!allRelevantMessages || !currentUserId) return {};
+    
+    const counts: Record<string, number> = {};
+    const readMap: Record<string, any> = {};
+    readStatuses?.forEach(status => {
+      readMap[status.id] = status.lastReadAt?.toMillis() || 0;
+    });
+
+    allRelevantMessages.forEach((msg: any) => {
+      if (msg.senderId === currentUserId) return;
+      
+      const chatId = msg.groupId || (msg.senderId === currentUserId ? msg.receiverId : msg.senderId);
+      const lastRead = readMap[chatId] || 0;
+      const msgTime = msg.createdAt?.toMillis() || 0;
+
+      if (msgTime > lastRead) {
+        counts[chatId] = (counts[chatId] || 0) + 1;
+      }
+    });
+
+    return counts;
+  }, [allRelevantMessages, readStatuses, currentUserId]);
 
   useEffect(() => {
     if (currentUserProfile) {
@@ -164,7 +203,6 @@ export function ChatSidebar({
             바이브챗
           </h1>
           <div className="flex items-center gap-1">
-            {/* 그룹 생성 버튼 */}
             <Dialog open={isCreateGroupOpen} onOpenChange={setIsCreateGroupOpen}>
               <DialogTrigger asChild>
                 <Button variant="ghost" size="icon" title="Create Group">
@@ -280,7 +318,6 @@ export function ChatSidebar({
 
       <ScrollArea className="flex-1 custom-scrollbar">
         <div className="px-2 space-y-4">
-          {/* 그룹 채팅 목록 */}
           <div>
             <div className="px-4 py-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-2">
               <Users className="h-3 w-3" /> 그룹 ({filteredGroups.length})
@@ -290,7 +327,7 @@ export function ChatSidebar({
                 key={group.id}
                 onClick={() => onSelectChat({ type: "group", id: group.id })}
                 className={cn(
-                  "w-full flex items-center gap-3 p-3 rounded-lg transition-colors mb-1",
+                  "w-full flex items-center gap-3 p-3 rounded-lg transition-colors mb-1 relative",
                   selectedChat?.type === "group" && selectedChat.id === group.id ? "bg-secondary text-primary" : "hover:bg-muted"
                 )}
               >
@@ -302,11 +339,15 @@ export function ChatSidebar({
                   <div className="font-semibold truncate text-sm">{group.name}</div>
                   <div className="text-[10px] text-muted-foreground">멤버 {group.members?.length}명</div>
                 </div>
+                {unreadCounts[group.id] > 0 && (
+                  <Badge variant="destructive" className="h-5 min-w-5 flex items-center justify-center rounded-full p-1 text-[10px]">
+                    {unreadCounts[group.id]}
+                  </Badge>
+                )}
               </button>
             ))}
           </div>
 
-          {/* 친구 목록 */}
           <div>
             <div className="px-4 py-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-2">
               <User className="h-3 w-3" /> 친구 ({filteredFriends.length})
@@ -328,6 +369,11 @@ export function ChatSidebar({
                     <div className="font-semibold truncate text-sm">{user.username}</div>
                     <div className="text-[10px] text-muted-foreground truncate">최근 활동 중</div>
                   </div>
+                  {unreadCounts[user.id] > 0 && (
+                    <Badge variant="destructive" className="h-5 min-w-5 flex items-center justify-center rounded-full p-1 text-[10px]">
+                      {unreadCounts[user.id]}
+                    </Badge>
+                  )}
                 </button>
                 <button 
                   onClick={(e) => { e.stopPropagation(); handleRemoveFriend(user.id); }}
