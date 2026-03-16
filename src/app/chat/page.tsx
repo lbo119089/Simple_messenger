@@ -11,10 +11,12 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription, SheetTrigger } from "@/components/ui/sheet";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogTrigger } from "@/components/ui/dialog";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Send, Info, MoreVertical, MessageSquarePlus, Loader2, Users, Search, X, ChevronUp, ChevronDown, User, UserPlus } from "lucide-react";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
+import { Send, Info, MoreVertical, MessageSquarePlus, Loader2, Users, Search, X, ChevronUp, ChevronDown, User, UserPlus, Download, Trash2, Bell, BellOff } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useAuth, useFirestore, useUser, useCollection, useDoc, useMemoFirebase } from "@/firebase";
-import { collection, query, where, addDoc, serverTimestamp, doc, limit, updateDoc, arrayUnion, arrayRemove } from "firebase/firestore";
+import { collection, query, where, addDoc, serverTimestamp, doc, limit, updateDoc, arrayUnion, arrayRemove, deleteDoc } from "firebase/firestore";
 import { signOut } from "firebase/auth";
 import { useToast } from "@/hooks/use-toast";
 import { Separator } from "@/components/ui/separator";
@@ -44,6 +46,11 @@ export default function ChatPage() {
   const [isInviteOpen, setIsInviteOpen] = useState(false);
   const [selectedFriendsToInvite, setSelectedFriendsToInvite] = useState<string[]>([]);
   const [isInviting, setIsInviting] = useState(false);
+
+  // 더보기 메뉴 상태
+  const [isMuted, setIsMuted] = useState(false);
+  const [isClearHistoryOpen, setIsClearHistoryOpen] = useState(false);
+  const [isClearing, setIsClearing] = useState(false);
   
   const scrollRef = useRef<HTMLDivElement>(null);
   const topObserverRef = useRef<HTMLDivElement>(null);
@@ -64,6 +71,7 @@ export default function ChatPage() {
     setIsSearchMode(false);
     setMessageSearchQuery("");
     setCurrentSearchMatchIndex(-1);
+    setIsMuted(false);
   }, [selectedChat]);
 
   const currentUserDocRef = useMemoFirebase(() => {
@@ -118,7 +126,6 @@ export default function ChatPage() {
     return [];
   }, [selectedChat, allUsers, user, selectedInfo]);
 
-  // 초대 가능한 친구 목록 (현재 그룹에 없는 친구들)
   const invitableFriends = useMemo(() => {
     if (selectedChat?.type !== "group" || !selectedInfo || !friends) return [];
     return friends.filter(f => !selectedInfo.members.includes(f.id));
@@ -126,7 +133,6 @@ export default function ChatPage() {
 
   const messagesQuery = useMemoFirebase(() => {
     if (!db || !user || !selectedChat) return null;
-    // 인덱스 문제 방지를 위해 단순 쿼리 후 클라이언트 필터링/정렬 방식 유지
     return query(
       collection(db, "messages"),
       where("participants", "array-contains", user.uid),
@@ -230,6 +236,44 @@ export default function ChatPage() {
     }
   };
 
+  const handleExportChat = () => {
+    if (!allMessagesInChat.length) {
+      toast({ title: "내보낼 대화 내용이 없습니다." });
+      return;
+    }
+    const chatTitle = selectedChat?.type === "group" ? selectedInfo.name : selectedInfo.username;
+    const content = allMessagesInChat.map(m => {
+      const dateStr = m.createdAt?.toDate?.().toLocaleString() || new Date().toLocaleString();
+      return `[${dateStr}] ${m.senderName || '익명'}: ${m.content}`;
+    }).join('\n');
+
+    const blob = new Blob([content], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `VibeChat_${chatTitle}_${new Date().toLocaleDateString()}.txt`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    toast({ title: "대화 내보내기 완료", description: "텍스트 파일이 다운로드되었습니다." });
+  };
+
+  const handleClearHistory = async () => {
+    if (!db || !allMessagesInChat.length) return;
+    setIsClearing(true);
+    try {
+      const deletePromises = allMessagesInChat.map(m => deleteDoc(doc(db, "messages", m.id)));
+      await Promise.all(deletePromises);
+      toast({ title: "대화 내용 삭제 완료", description: "이 방의 모든 메시지가 삭제되었습니다." });
+    } catch (error: any) {
+      toast({ variant: "destructive", title: "삭제 실패", description: error.message });
+    } finally {
+      setIsClearing(false);
+      setIsClearHistoryOpen(false);
+    }
+  };
+
   const handleInviteFriends = async () => {
     if (!db || !selectedChat || selectedChat.type !== "group" || selectedFriendsToInvite.length === 0) return;
     
@@ -261,7 +305,6 @@ export default function ChatPage() {
         });
         toast({ title: "대화방을 나갔습니다." });
       } else {
-        // 개인 채팅은 목록에서 선택만 해제 (영구 삭제는 복잡하므로)
         toast({ title: "대화 목록에서 제외되었습니다." });
       }
       setSelectedChat(null);
@@ -453,7 +496,41 @@ export default function ChatPage() {
                   </SheetContent>
                 </Sheet>
 
-                <Button variant="ghost" size="icon"><MoreVertical className="h-5 w-5 text-muted-foreground" /></Button>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="ghost" size="icon"><MoreVertical className="h-5 w-5 text-muted-foreground" /></Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-48">
+                    <DropdownMenuItem className="gap-2" onClick={handleExportChat}>
+                      <Download className="h-4 w-4" /> 대화 내용 내보내기
+                    </DropdownMenuItem>
+                    <DropdownMenuItem className="gap-2" onClick={() => setIsMuted(!isMuted)}>
+                      {isMuted ? <Bell className="h-4 w-4" /> : <BellOff className="h-4 w-4" />}
+                      알림 {isMuted ? "켜기" : "끄기"}
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem className="gap-2 text-destructive focus:text-destructive" onClick={() => setIsClearHistoryOpen(true)}>
+                      <Trash2 className="h-4 w-4" /> 대화 내용 전체 삭제
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+
+                <AlertDialog open={isClearHistoryOpen} onOpenChange={setIsClearHistoryOpen}>
+                  <AlertDialogContent>
+                    <AlertDialogHeader>
+                      <AlertDialogTitle>대화 내용을 삭제하시겠습니까?</AlertDialogTitle>
+                      <AlertDialogDescription>
+                        이 대화방의 모든 메시지가 영구적으로 삭제됩니다. 이 작업은 되돌릴 수 없습니다.
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                      <AlertDialogCancel>취소</AlertDialogCancel>
+                      <AlertDialogAction className="bg-destructive hover:bg-destructive/90" onClick={handleClearHistory} disabled={isClearing}>
+                        {isClearing ? <Loader2 className="h-4 w-4 animate-spin" /> : "전체 삭제"}
+                      </AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
               </div>
             </header>
 
