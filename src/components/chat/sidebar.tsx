@@ -82,6 +82,10 @@ export function ChatSidebar({
       if (msg.senderId === currentUserId) return;
       
       const chatId = msg.groupId || (msg.senderId === currentUserId ? msg.receiverId : msg.senderId);
+      
+      // 현재 선택된 방이라면 배지 계산에서 제외 (깜빡임 방지)
+      if (selectedChat && selectedChat.id === chatId) return;
+
       const lastRead = readMap[chatId] || 0;
       const msgTime = msg.createdAt?.toMillis() || 0;
 
@@ -91,7 +95,7 @@ export function ChatSidebar({
     });
 
     return counts;
-  }, [allRelevantMessages, readStatuses, currentUserId]);
+  }, [allRelevantMessages, readStatuses, currentUserId, selectedChat]);
 
   useEffect(() => {
     if (currentUserProfile) {
