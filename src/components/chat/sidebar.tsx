@@ -47,35 +47,11 @@ export function ChatSidebar({
     }
   }, [currentUserProfile, isEditDialogOpen]);
 
-  const otherUsers = users.filter(u => u.id !== currentUserId);
+  // currentUserId가 있을 때만 필터링을 수행하여 로그아웃 시 본인이 목록에 뜨는 것을 방지
+  const otherUsers = currentUserId ? users.filter(u => u.id !== currentUserId) : [];
   const filteredUsers = otherUsers.filter((u) =>
     u.username?.toLowerCase().includes(searchQuery.toLowerCase())
   );
-
-  const handleUpdateProfile = async () => {
-    if (!db || !currentUserId) return;
-    
-    setIsUpdating(true);
-    try {
-      await updateDoc(doc(db, "users", currentUserId), {
-        username: editUsername,
-        avatarUrl: editAvatar
-      });
-      toast({
-        title: "프로필 업데이트 완료",
-        description: "사용자 정보가 성공적으로 변경되었습니다.",
-      });
-      setIsEditDialogOpen(false);
-    } catch (error: any) {
-      toast({
-        variant: "destructive",
-        title: "업데이트 실패",
-        description: error.message,
-      });
-    } finally {
-      setIsUpdating(false);
-    }
-  };
 
   return (
     <div className="flex flex-col h-full bg-white border-r border-border w-full md:w-[320px]">
@@ -213,4 +189,29 @@ export function ChatSidebar({
       </div>
     </div>
   );
+
+  async function handleUpdateProfile() {
+    if (!db || !currentUserId) return;
+    
+    setIsUpdating(true);
+    try {
+      await updateDoc(doc(db, "users", currentUserId), {
+        username: editUsername,
+        avatarUrl: editAvatar
+      });
+      toast({
+        title: "프로필 업데이트 완료",
+        description: "사용자 정보가 성공적으로 변경되었습니다.",
+      });
+      setIsEditDialogOpen(false);
+    } catch (error: any) {
+      toast({
+        variant: "destructive",
+        title: "업데이트 실패",
+        description: error.message,
+      });
+    } finally {
+      setIsUpdating(false);
+    }
+  }
 }
