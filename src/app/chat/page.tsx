@@ -24,6 +24,7 @@ export default function ChatPage() {
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
   const [inputValue, setInputValue] = useState("");
   const [isMounted, setIsMounted] = useState(false);
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -31,10 +32,10 @@ export default function ChatPage() {
   }, []);
 
   useEffect(() => {
-    if (isMounted && !userLoading && !user) {
+    if (isMounted && !userLoading && !user && !isLoggingOut) {
       router.push("/");
     }
-  }, [user, userLoading, isMounted, router]);
+  }, [user, userLoading, isMounted, router, isLoggingOut]);
 
   // 내 프로필 정보 가져오기
   const currentUserDocRef = useMemo(() => {
@@ -109,20 +110,25 @@ export default function ChatPage() {
   const handleLogout = async () => {
     if (auth) {
       try {
+        setIsLoggingOut(true);
         await signOut(auth);
         router.push("/");
       } catch (error: any) {
         console.error("Logout failed", error);
+        setIsLoggingOut(false);
       }
     }
   };
 
-  if (!isMounted || userLoading || usersLoading) {
+  // 사용자 정보가 없거나 로그아웃 중이면 채팅 UI를 보여주지 않음
+  if (!isMounted || userLoading || usersLoading || !user || isLoggingOut) {
     return (
       <div className="flex h-screen items-center justify-center bg-background">
         <div className="flex flex-col items-center gap-4">
           <Loader2 className="h-10 w-10 text-primary animate-spin" />
-          <p className="text-muted-foreground animate-pulse">대화 불러오는 중...</p>
+          <p className="text-muted-foreground animate-pulse">
+            {isLoggingOut ? "로그아웃 중..." : "대화 불러오는 중..."}
+          </p>
         </div>
       </div>
     );

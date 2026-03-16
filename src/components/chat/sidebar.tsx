@@ -1,7 +1,6 @@
-
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { Input } from "@/components/ui/input";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Search, Plus, MessageSquare, LogOut, Settings, User, Check, Loader2 } from "lucide-react";
@@ -47,11 +46,42 @@ export function ChatSidebar({
     }
   }, [currentUserProfile, isEditDialogOpen]);
 
-  // currentUserId가 있을 때만 필터링을 수행하여 로그아웃 시 본인이 목록에 뜨는 것을 방지
-  const otherUsers = currentUserId ? users.filter(u => u.id !== currentUserId) : [];
-  const filteredUsers = otherUsers.filter((u) =>
-    u.username?.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  // 본인을 제외한 다른 사용자들 필터링
+  const otherUsers = useMemo(() => {
+    if (!currentUserId || !users) return [];
+    return users.filter(u => u.id !== currentUserId);
+  }, [users, currentUserId]);
+
+  const filteredUsers = useMemo(() => {
+    return otherUsers.filter((u) =>
+      u.username?.toLowerCase().includes(searchQuery.toLowerCase())
+    );
+  }, [otherUsers, searchQuery]);
+
+  async function handleUpdateProfile() {
+    if (!db || !currentUserId) return;
+    
+    setIsUpdating(true);
+    try {
+      await updateDoc(doc(db, "users", currentUserId), {
+        username: editUsername,
+        avatarUrl: editAvatar
+      });
+      toast({
+        title: "프로필 업데이트 완료",
+        description: "사용자 정보가 성공적으로 변경되었습니다.",
+      });
+      setIsEditDialogOpen(false);
+    } catch (error: any) {
+      toast({
+        variant: "destructive",
+        title: "업데이트 실패",
+        description: error.message,
+      });
+    } finally {
+      setIsUpdating(false);
+    }
+  }
 
   return (
     <div className="flex flex-col h-full bg-white border-r border-border w-full md:w-[320px]">
@@ -85,7 +115,7 @@ export function ChatSidebar({
                           >
                             <Avatar className={cn(
                               "h-14 w-14 border-2 transition-all",
-                              editAvatar === img.imageUrl ? "border-primary scale-110 shadow-md ring-2 ring-primary/10" : "border-transparent opacity-60 grayscale-[40%] hover:opacity-100 hover:grayscale-0"
+                              editAvatar === img.imageUrl ? "border-primary scale-110 shadow-md ring-2 ring-primary/20" : "border-transparent opacity-60 grayscale-[40%] hover:opacity-100 hover:grayscale-0"
                             )}>
                               <AvatarImage src={img.imageUrl} />
                               <AvatarFallback><User /></AvatarFallback>
@@ -189,29 +219,4 @@ export function ChatSidebar({
       </div>
     </div>
   );
-
-  async function handleUpdateProfile() {
-    if (!db || !currentUserId) return;
-    
-    setIsUpdating(true);
-    try {
-      await updateDoc(doc(db, "users", currentUserId), {
-        username: editUsername,
-        avatarUrl: editAvatar
-      });
-      toast({
-        title: "프로필 업데이트 완료",
-        description: "사용자 정보가 성공적으로 변경되었습니다.",
-      });
-      setIsEditDialogOpen(false);
-    } catch (error: any) {
-      toast({
-        variant: "destructive",
-        title: "업데이트 실패",
-        description: error.message,
-      });
-    } finally {
-      setIsUpdating(false);
-    }
-  }
 }
