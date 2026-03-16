@@ -15,8 +15,8 @@ import { collection, query, where, addDoc, serverTimestamp, doc, orderBy, limit 
 import { signOut } from "firebase/auth";
 import { useToast } from "@/hooks/use-toast";
 
-const INITIAL_MESSAGE_LIMIT = 30;
-const LOAD_MORE_STEP = 20;
+const INITIAL_MESSAGE_LIMIT = 50;
+const LOAD_MORE_STEP = 30;
 
 export default function ChatPage() {
   const router = useRouter();
@@ -96,48 +96,49 @@ export default function ChatPage() {
     }
   }, [selectedChat, allUsers, userGroups]);
 
-  // 방별 전용 쿼리: limit가 현재 대화방 내에서만 작동하도록 수정
+  // 안정적인 쿼리: 사용자가 참여한 모든 메시지를 가져와서 클라이언트에서 필터링
   const messagesQuery = useMemoFirebase(() => {
     if (!db || !user || !selectedChat) return null;
     
-    if (selectedChat.type === "group") {
-      return query(
-        collection(db, "messages"),
-        where("groupId", "==", selectedChat.id),
-        orderBy("createdAt", "desc"),
-        limit(messageLimit)
-      );
-    } else {
-      // 1:1 대화: 상대방이 포함된 메시지만 가져옴 (보안 규칙이 내가 포함된 것만 필터링해줌)
-      return query(
-        collection(db, "messages"),
-        where("participants", "array-contains", selectedChat.id),
-        where("groupId", "==", null),
-        orderBy("createdAt", "desc"),
-        limit(messageLimit)
-      );
-    }
+    // 복잡한 index 에러를 방지하기 위해 participants 기반으로만 쿼리하고 limit 적용
+    return query(
+      collection(db, "messages"),
+      where("participants", "array-contains", user.uid),
+      orderBy("createdAt", "desc"),
+      limit(messageLimit)
+    );
   }, [db, user, selectedChat, messageLimit]);
   
   const { data: rawMessages, isLoading: messagesLoading } = useCollection(messagesQuery);
 
   const allMessagesInChat = useMemo(() => {
-    if (!rawMessages) return [];
+    if (!rawMessages || !selectedChat) return [];
     
-    // 이미 쿼리에서 방별 필터링이 되었으므로 정렬만 수행
-    return [...rawMessages].sort((a: any, b: any) => {
-      const timeA = a.createdAt?.toMillis?.() || Date.now();
-      const timeB = b.createdAt?.toMillis?.() || Date.now();
+    // 클라이언트 측 필터링: 현재 선택된 방의 메시지만 걸러냄
+    const filtered = rawMessages.filter((msg: any) => {
+      if (selectedChat.type === "group") {
+        return msg.groupId === selectedChat.id;
+      } else {
+        // 1:1 채팅: groupId가 없거나 null이고, 상대방이 참여자에 포함되어야 함
+        return (!msg.groupId || msg.groupId === null) && 
+               msg.participants?.includes(selectedChat.id);
+      }
+    });
+
+    // 시간순 정렬
+    return [...filtered].sort((a: any, b: any) => {
+      const timeA = a.createdAt?.toMillis?.() || 0;
+      const timeB = b.createdAt?.toMillis?.() || 0;
       return timeA - timeB;
     });
-  }, [rawMessages]);
+  }, [rawMessages, selectedChat]);
 
   useEffect(() => {
     if (!topObserverRef.current || messagesLoading) return;
 
     const observer = new IntersectionObserver(
       (entries) => {
-        if (entries[0].isIntersecting && allMessagesInChat.length >= messageLimit) {
+        if (entries[0].isIntersecting && rawMessages.length >= messageLimit) {
           setMessageLimit((prev) => prev + LOAD_MORE_STEP);
           setIsInitialLoad(false);
         }
@@ -147,7 +148,7 @@ export default function ChatPage() {
 
     observer.observe(topObserverRef.current);
     return () => observer.disconnect();
-  }, [allMessagesInChat.length, messageLimit, messagesLoading]);
+  }, [rawMessages.length, messageLimit, messagesLoading]);
 
   const searchMatchIndices = useMemo(() => {
     if (!messageSearchQuery.trim() || !isSearchMode) return [];
@@ -166,7 +167,7 @@ export default function ChatPage() {
 
   useEffect(() => {
     if (scrollRef.current && !isSearchMode && isInitialLoad && allMessagesInChat.length > 0) {
-      scrollRef.current.scrollIntoView({ behavior: "smooth" });
+      scrollRef.current.scrollIntoView({ behavior: "auto" });
     }
   }, [allMessagesInChat, isSearchMode, isInitialLoad]);
 
@@ -193,7 +194,7 @@ export default function ChatPage() {
       } else {
         messageData.receiverId = selectedChat.id;
         messageData.participants = [user.uid, selectedChat.id];
-        messageData.groupId = null; // 쿼리 필터링을 위해 명시적으로 null 설정
+        messageData.groupId = null;
       }
 
       await addDoc(collection(db, "messages"), messageData);
@@ -346,7 +347,7 @@ export default function ChatPage() {
             <ScrollArea className="flex-1 p-6 custom-scrollbar">
               <div className="flex flex-col gap-1 max-w-4xl mx-auto">
                 <div ref={topObserverRef} className="h-10 flex items-center justify-center">
-                   {allMessagesInChat.length >= messageLimit && (
+                   {rawMessages.length >= messageLimit && (
                      <Loader2 className="h-4 w-4 animate-spin text-muted-foreground opacity-50" />
                    )}
                 </div>
