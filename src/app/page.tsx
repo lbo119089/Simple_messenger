@@ -1,10 +1,11 @@
+
 "use client";
 
 import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
-import { MessageSquare, ShieldCheck, Sparkles, Send, AlertCircle, User, Check } from "lucide-react";
+import { MessageSquare, ShieldCheck, Sparkles, Send, AlertCircle, User, Check, ScrollText } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useAuth, useFirestore, useUser } from "@/firebase";
 import { signInWithEmailAndPassword, createUserWithEmailAndPassword, updateProfile } from "firebase/auth";
@@ -14,6 +15,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { PlaceHolderImages } from "@/lib/placeholder-images";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { cn } from "@/lib/utils";
+import { ScrollArea } from "@/components/ui/scroll-area";
 
 export default function Home() {
   const [isLogin, setIsLogin] = useState(true);
@@ -39,10 +41,11 @@ export default function Home() {
     e.preventDefault();
     
     if (!auth || !db) {
+      console.error("Firebase not initialized");
       toast({
         variant: "destructive",
         title: "연결 오류",
-        description: "Firebase 설정이 필요합니다.",
+        description: "Firebase 설정이 필요합니다. 콘솔을 확인해주세요.",
       });
       return;
     }
@@ -69,11 +72,12 @@ export default function Home() {
       }
       router.push("/chat");
     } catch (error: any) {
-      console.error("Auth error:", error);
+      console.error("Authentication Error:", error);
       let message = "인증에 실패했습니다.";
       if (error.code === "auth/email-already-in-use") message = "이미 사용 중인 이메일입니다.";
       else if (error.code === "auth/weak-password") message = "비밀번호는 6자리 이상이어야 합니다.";
       else if (error.code === "auth/invalid-credential") message = "정보가 일치하지 않습니다.";
+      else if (error.code === "auth/configuration-not-found") message = "Firebase 콘솔에서 '이메일/비밀번호' 로그인을 활성화해야 합니다.";
 
       toast({
         variant: "destructive",
@@ -99,14 +103,14 @@ export default function Home() {
             <h1 className="text-4xl md:text-5xl font-bold tracking-tight">바이브챗</h1>
           </div>
           <h2 className="text-2xl md:text-3xl font-medium mb-6 leading-tight">
-            나만의 아바타로 스마트한 대화를 시작하세요
+            더 많은 아바타와 함께 스마트한 대화를 시작하세요
           </h2>
           <div className="space-y-6 text-primary-foreground/80">
             <div className="flex items-start gap-4">
               <Sparkles className="h-6 w-6 text-accent mt-1" />
               <div>
-                <h3 className="text-xl font-semibold text-white">커스텀 프로필 설정</h3>
-                <p>회원가입 시 원하는 아바타를 선택하고 언제든 변경할 수 있습니다.</p>
+                <h3 className="text-xl font-semibold text-white">나만의 유니크한 프로필</h3>
+                <p>12가지 이상의 다양한 아바타 중에서 나를 가장 잘 표현하는 이미지를 선택해보세요.</p>
               </div>
             </div>
           </div>
@@ -129,29 +133,34 @@ export default function Home() {
                 {!isLogin && (
                   <>
                     <div className="space-y-3">
-                      <label className="text-sm font-medium text-muted-foreground">아바타 선택</label>
-                      <div className="flex justify-center gap-4 py-2">
-                        {PlaceHolderImages.map((img) => (
-                          <div 
-                            key={img.id}
-                            className="relative cursor-pointer group"
-                            onClick={() => setSelectedAvatar(img.imageUrl)}
-                          >
-                            <Avatar className={cn(
-                              "h-16 w-16 border-4 transition-all duration-200",
-                              selectedAvatar === img.imageUrl ? "border-primary scale-110 shadow-lg" : "border-transparent opacity-60 grayscale-[50%] hover:opacity-100 hover:grayscale-0"
-                            )}>
-                              <AvatarImage src={img.imageUrl} />
-                              <AvatarFallback><User /></AvatarFallback>
-                            </Avatar>
-                            {selectedAvatar === img.imageUrl && (
-                              <div className="absolute -bottom-1 -right-1 bg-primary text-white rounded-full p-1 border-2 border-white shadow-sm">
-                                <Check className="h-3 w-3" />
-                              </div>
-                            )}
-                          </div>
-                        ))}
+                      <div className="flex justify-between items-center">
+                        <label className="text-sm font-medium text-muted-foreground">아바타 선택</label>
+                        <span className="text-[10px] bg-secondary text-primary px-2 py-0.5 rounded-full font-bold">12 Options</span>
                       </div>
+                      <ScrollArea className="h-40 rounded-xl border border-muted p-3 bg-muted/20">
+                        <div className="grid grid-cols-4 gap-3">
+                          {PlaceHolderImages.map((img) => (
+                            <div 
+                              key={img.id}
+                              className="relative cursor-pointer group flex flex-col items-center"
+                              onClick={() => setSelectedAvatar(img.imageUrl)}
+                            >
+                              <Avatar className={cn(
+                                "h-14 w-14 border-2 transition-all duration-200",
+                                selectedAvatar === img.imageUrl ? "border-primary scale-110 shadow-md ring-2 ring-primary/20" : "border-transparent opacity-60 grayscale-[40%] hover:opacity-100 hover:grayscale-0"
+                              )}>
+                                <AvatarImage src={img.imageUrl} />
+                                <AvatarFallback><User /></AvatarFallback>
+                              </Avatar>
+                              {selectedAvatar === img.imageUrl && (
+                                <div className="absolute -top-1 -right-1 bg-primary text-white rounded-full p-0.5 border-2 border-white shadow-sm z-10">
+                                  <Check className="h-2.5 w-2.5" />
+                                </div>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      </ScrollArea>
                     </div>
                     <div className="space-y-2">
                       <Input 

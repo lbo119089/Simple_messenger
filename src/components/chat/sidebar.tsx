@@ -1,6 +1,7 @@
+
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Input } from "@/components/ui/input";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Search, Plus, MessageSquare, LogOut, Settings, User, Check, Loader2 } from "lucide-react";
@@ -32,12 +33,19 @@ export function ChatSidebar({
 }: ChatSidebarProps) {
   const [searchQuery, setSearchQuery] = useState("");
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
-  const [editUsername, setEditUsername] = useState(currentUserProfile?.username || "");
-  const [editAvatar, setEditAvatar] = useState(currentUserProfile?.avatarUrl || "");
+  const [editUsername, setEditUsername] = useState("");
+  const [editAvatar, setEditAvatar] = useState("");
   const [isUpdating, setIsUpdating] = useState(false);
   
   const db = useFirestore();
   const { toast } = useToast();
+
+  useEffect(() => {
+    if (currentUserProfile) {
+      setEditUsername(currentUserProfile.username || "");
+      setEditAvatar(currentUserProfile.avatarUrl || "");
+    }
+  }, [currentUserProfile, isEditDialogOpen]);
 
   const otherUsers = users.filter(u => u.id !== currentUserId);
   const filteredUsers = otherUsers.filter((u) =>
@@ -89,30 +97,32 @@ export function ChatSidebar({
                   <DialogTitle>내 프로필 수정</DialogTitle>
                 </DialogHeader>
                 <div className="space-y-6 py-4">
-                  <div className="flex flex-col items-center gap-4">
-                    <label className="text-sm font-medium text-muted-foreground self-start">아바타 변경</label>
-                    <div className="flex flex-wrap justify-center gap-3">
-                      {PlaceHolderImages.map((img) => (
-                        <div 
-                          key={img.id}
-                          className="relative cursor-pointer"
-                          onClick={() => setEditAvatar(img.imageUrl)}
-                        >
-                          <Avatar className={cn(
-                            "h-12 w-12 border-2 transition-all",
-                            editAvatar === img.imageUrl ? "border-primary scale-110" : "border-transparent opacity-60 grayscale-[50%] hover:opacity-100 hover:grayscale-0"
-                          )}>
-                            <AvatarImage src={img.imageUrl} />
-                            <AvatarFallback><User /></AvatarFallback>
-                          </Avatar>
-                          {editAvatar === img.imageUrl && (
-                            <div className="absolute -bottom-1 -right-1 bg-primary text-white rounded-full p-0.5 border-2 border-white shadow-sm">
-                              <Check className="h-2 w-2" />
-                            </div>
-                          )}
-                        </div>
-                      ))}
-                    </div>
+                  <div className="space-y-3">
+                    <label className="text-sm font-medium text-muted-foreground">아바타 변경 (12개 선택지)</label>
+                    <ScrollArea className="h-48 rounded-xl border border-muted p-4 bg-muted/10">
+                      <div className="grid grid-cols-4 gap-4">
+                        {PlaceHolderImages.map((img) => (
+                          <div 
+                            key={img.id}
+                            className="relative cursor-pointer flex flex-col items-center"
+                            onClick={() => setEditAvatar(img.imageUrl)}
+                          >
+                            <Avatar className={cn(
+                              "h-14 w-14 border-2 transition-all",
+                              editAvatar === img.imageUrl ? "border-primary scale-110 shadow-md ring-2 ring-primary/10" : "border-transparent opacity-60 grayscale-[40%] hover:opacity-100 hover:grayscale-0"
+                            )}>
+                              <AvatarImage src={img.imageUrl} />
+                              <AvatarFallback><User /></AvatarFallback>
+                            </Avatar>
+                            {editAvatar === img.imageUrl && (
+                              <div className="absolute -top-1 -right-1 bg-primary text-white rounded-full p-0.5 border-2 border-white shadow-sm z-10">
+                                <Check className="h-2.5 w-2.5" />
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </ScrollArea>
                   </div>
                   <div className="space-y-2">
                     <label className="text-sm font-medium text-muted-foreground">이름</label>
@@ -120,12 +130,13 @@ export function ChatSidebar({
                       value={editUsername}
                       onChange={(e) => setEditUsername(e.target.value)}
                       placeholder="이름을 입력하세요"
+                      className="h-11"
                     />
                   </div>
                 </div>
                 <DialogFooter>
                   <Button variant="outline" onClick={() => setIsEditDialogOpen(false)}>취소</Button>
-                  <Button onClick={handleUpdateProfile} disabled={isUpdating}>
+                  <Button onClick={handleUpdateProfile} disabled={isUpdating} className="min-w-[100px]">
                     {isUpdating ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
                     저장하기
                   </Button>
@@ -182,7 +193,7 @@ export function ChatSidebar({
             ))
           ) : (
             <div className="p-8 text-center text-muted-foreground text-sm">
-              친구가 없습니다.
+              {searchQuery ? "검색 결과가 없습니다." : "친구가 없습니다."}
             </div>
           )}
         </div>
@@ -190,7 +201,7 @@ export function ChatSidebar({
 
       <div className="p-4 border-t border-border mt-auto">
         <div className="flex items-center gap-3 p-3 bg-muted/50 rounded-xl">
-          <Avatar className="h-10 w-10">
+          <Avatar className="h-10 w-10 border border-white">
             <AvatarImage src={currentUserProfile?.avatarUrl} />
             <AvatarFallback>{currentUserProfile?.username?.[0] || <User />}</AvatarFallback>
           </Avatar>

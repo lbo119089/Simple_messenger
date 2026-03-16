@@ -2,20 +2,74 @@
   "placeholderImages": [
     {
       "id": "avatar-1",
-      "description": "User profile avatar",
+      "description": "User profile avatar 1",
       "imageUrl": "https://picsum.photos/seed/user1/200/200",
       "imageHint": "profile avatar"
     },
     {
       "id": "avatar-2",
-      "description": "User profile avatar",
+      "description": "User profile avatar 2",
       "imageUrl": "https://picsum.photos/seed/user2/200/200",
       "imageHint": "profile avatar"
     },
     {
       "id": "avatar-3",
-      "description": "User profile avatar",
+      "description": "User profile avatar 3",
       "imageUrl": "https://picsum.photos/seed/user3/200/200",
+      "imageHint": "profile avatar"
+    },
+    {
+      "id": "avatar-4",
+      "description": "User profile avatar 4",
+      "imageUrl": "https://picsum.photos/seed/user4/200/200",
+      "imageHint": "profile avatar"
+    },
+    {
+      "id": "avatar-5",
+      "description": "User profile avatar 5",
+      "imageUrl": "https://picsum.photos/seed/user5/200/200",
+      "imageHint": "profile avatar"
+    },
+    {
+      "id": "avatar-6",
+      "description": "User profile avatar 6",
+      "imageUrl": "https://picsum.photos/seed/user6/200/200",
+      "imageHint": "profile avatar"
+    },
+    {
+      "id": "avatar-7",
+      "description": "User profile avatar 7",
+      "imageUrl": "https://picsum.photos/seed/user7/200/200",
+      "imageHint": "profile avatar"
+    },
+    {
+      "id": "avatar-8",
+      "description": "User profile avatar 8",
+      "imageUrl": "https://picsum.photos/seed/user8/200/200",
+      "imageHint": "profile avatar"
+    },
+    {
+      "id": "avatar-9",
+      "description": "User profile avatar 9",
+      "imageUrl": "https://picsum.photos/seed/user9/200/200",
+      "imageHint": "profile avatar"
+    },
+    {
+      "id": "avatar-10",
+      "description": "User profile avatar 10",
+      "imageUrl": "https://picsum.photos/seed/user10/200/200",
+      "imageHint": "profile avatar"
+    },
+    {
+      "id": "avatar-11",
+      "description": "User profile avatar 11",
+      "imageUrl": "https://picsum.photos/seed/user11/200/200",
+      "imageHint": "profile avatar"
+    },
+    {
+      "id": "avatar-12",
+      "description": "User profile avatar 12",
+      "imageUrl": "https://picsum.photos/seed/user12/200/200",
       "imageHint": "profile avatar"
     }
   ]
