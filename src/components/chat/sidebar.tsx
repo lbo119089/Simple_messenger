@@ -58,16 +58,17 @@ export function ChatSidebar({
     if (!db || !currentUserId) return null;
     return query(collection(db, "messages"), where("participants", "array-contains", currentUserId));
   }, [db, currentUserId]);
-  const { data: allRelevantMessages } = useCollection(messagesQuery);
+  const { data: allRelevantMessages, isLoading: messagesLoading } = useCollection(messagesQuery);
 
   const readStatusQuery = useMemoFirebase(() => {
     if (!db || !currentUserId) return null;
     return query(collection(db, "users", currentUserId, "readStatus"));
   }, [db, currentUserId]);
-  const { data: readStatuses } = useCollection(readStatusQuery);
+  const { data: readStatuses, isLoading: readStatusesLoading } = useCollection(readStatusQuery);
 
   const unreadCounts = useMemo(() => {
-    if (!allRelevantMessages || !currentUserId) return {};
+    // 데이터가 로딩 중일 때는 계산하지 않음 (깜빡임 및 잘못된 카운트 방지)
+    if (messagesLoading || readStatusesLoading || !allRelevantMessages || !currentUserId) return {};
     
     const counts: Record<string, number> = {};
     const readMap: Record<string, number> = {};
@@ -80,22 +81,27 @@ export function ChatSidebar({
       // 본인이 보낸 메시지는 카운트 제외
       if (msg.senderId === currentUserId) return;
       
-      // 채팅방 ID 결정 (그룹이면 groupId, 개인 채팅이면 보낸 사람의 ID)
-      const chatId = msg.groupId || msg.senderId;
+      // 채팅방 ID 결정
+      // 그룹이면 groupId 사용, 개인 채팅이면 참여자 중 내가 아닌 상대방의 UID를 사용
+      const chatId = msg.groupId || msg.participants?.find((p: string) => p !== currentUserId);
       
-      // 현재 열려있는 방이면 카운트 제외 (깜빡임 방지 및 즉시 읽음 처리)
+      if (!chatId) return;
+
+      // 현재 열려있는 방이면 카운트 제외
       if (selectedChat && selectedChat.id === chatId) return;
 
       const lastRead = readMap[chatId] || 0;
-      const msgTime = msg.createdAt?.toMillis?.() || (msg.createdAt?.seconds ? msg.createdAt.seconds * 1000 : Date.now());
+      const msgTime = msg.createdAt?.toMillis?.() || (msg.createdAt?.seconds ? msg.createdAt.seconds * 1000 : 0);
 
-      if (msgTime > lastRead) {
+      // 메시지 시간이 마지막 읽은 시간보다 크면 읽지 않음으로 처리
+      // msgTime이 0인 경우(방금 보낸 메시지 등)는 제외
+      if (msgTime > 0 && msgTime > lastRead) {
         counts[chatId] = (counts[chatId] || 0) + 1;
       }
     });
 
     return counts;
-  }, [allRelevantMessages, readStatuses, currentUserId, selectedChat]);
+  }, [allRelevantMessages, readStatuses, currentUserId, selectedChat, messagesLoading, readStatusesLoading]);
 
   useEffect(() => {
     if (currentUserProfile) {
