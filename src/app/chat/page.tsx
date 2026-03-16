@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useState, useEffect, useRef, useMemo } from "react";
@@ -9,10 +10,13 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Send, Info, MoreVertical, MessageSquarePlus, Loader2, Users, Search, X, ChevronUp, ChevronDown } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useAuth, useFirestore, useUser, useCollection, useDoc } from "@/firebase";
-import { collection, query, where, addDoc, serverTimestamp, doc } from "firebase/firestore";
+import { useAuth, useFirestore, useUser, useCollection, useDoc, useMemoFirebase } from "@/firebase";
+import { collection, query, where, addDoc, serverTimestamp, doc, orderBy, limit } from "firebase/firestore";
 import { signOut } from "firebase/auth";
 import { useToast } from "@/hooks/use-toast";
+
+const INITIAL_MESSAGE_LIMIT = 30;
+const LOAD_MORE_STEP = 20;
 
 export default function ChatPage() {
   const router = useRouter();
@@ -29,7 +33,12 @@ export default function ChatPage() {
   const [messageSearchQuery, setMessageSearchQuery] = useState("");
   const [currentSearchMatchIndex, setCurrentSearchMatchIndex] = useState(-1);
   
+  // 페이지네이션 상태
+  const [messageLimit, setMessageLimit] = useState(INITIAL_MESSAGE_LIMIT);
+  const [isInitialLoad, setIsInitialLoad] = useState(true);
+  
   const scrollRef = useRef<HTMLDivElement>(null);
+  const topObserverRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     setIsMounted(true);
@@ -41,19 +50,28 @@ export default function ChatPage() {
     }
   }, [user, userLoading, isMounted, router, isLoggingOut]);
 
-  const currentUserDocRef = useMemo(() => {
+  // 채팅방 변경 시 리미트 초기화
+  useEffect(() => {
+    setMessageLimit(INITIAL_MESSAGE_LIMIT);
+    setIsInitialLoad(true);
+    setIsSearchMode(false);
+    setMessageSearchQuery("");
+    setCurrentSearchMatchIndex(-1);
+  }, [selectedChat]);
+
+  const currentUserDocRef = useMemoFirebase(() => {
     if (!db || !user) return null;
     return doc(db, "users", user.uid);
   }, [db, user]);
   const { data: currentUserProfile } = useDoc(currentUserDocRef);
 
-  const usersQuery = useMemo(() => {
+  const usersQuery = useMemoFirebase(() => {
     if (!db) return null;
     return query(collection(db, "users"));
   }, [db]);
   const { data: allUsers, isLoading: usersLoading } = useCollection(usersQuery);
 
-  const friendsQuery = useMemo(() => {
+  const friendsQuery = useMemoFirebase(() => {
     if (!db || !user) return null;
     return query(collection(db, "users", user.uid, "friends"));
   }, [db, user]);
@@ -65,7 +83,7 @@ export default function ChatPage() {
     return allUsers.filter(u => u.id !== user.uid && friendIds.includes(u.id));
   }, [allUsers, friendsListData, user]);
 
-  const groupsQuery = useMemo(() => {
+  const groupsQuery = useMemoFirebase(() => {
     if (!db || !user) return null;
     return query(collection(db, "groups"), where("members", "array-contains", user.uid));
   }, [db, user]);
@@ -80,15 +98,20 @@ export default function ChatPage() {
     }
   }, [selectedChat, allUsers, userGroups]);
 
-  const messagesQuery = useMemo(() => {
+  // 메시지 쿼리: limit와 orderBy를 사용하여 효율적으로 가져옴
+  const messagesQuery = useMemoFirebase(() => {
     if (!db || !user || !selectedChat) return null;
+    
+    // 복합 인덱스가 필요할 수 있음: participants(array) + createdAt(desc)
     return query(
       collection(db, "messages"),
-      where("participants", "array-contains", user.uid)
+      where("participants", "array-contains", user.uid),
+      orderBy("createdAt", "desc"),
+      limit(messageLimit)
     );
-  }, [db, user, selectedChat]);
+  }, [db, user, selectedChat, messageLimit]);
   
-  const { data: rawMessages } = useCollection(messagesQuery);
+  const { data: rawMessages, isLoading: messagesLoading } = useCollection(messagesQuery);
 
   const allMessagesInChat = useMemo(() => {
     if (!rawMessages || !selectedChat || !user) return [];
@@ -108,6 +131,25 @@ export default function ChatPage() {
       });
   }, [rawMessages, selectedChat, user]);
 
+  // 무한 스크롤 감지
+  useEffect(() => {
+    if (!topObserverRef.current || messagesLoading) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting && allMessagesInChat.length >= messageLimit) {
+          setMessageLimit((prev) => prev + LOAD_MORE_STEP);
+          setIsInitialLoad(false);
+        }
+      },
+      { threshold: 1.0 }
+    );
+
+    observer.observe(topObserverRef.current);
+    return () => observer.disconnect();
+  }, [allMessagesInChat.length, messageLimit, messagesLoading]);
+
+  // 검색 로직
   const searchMatchIndices = useMemo(() => {
     if (!messageSearchQuery.trim() || !isSearchMode) return [];
     return allMessagesInChat
@@ -123,23 +165,19 @@ export default function ChatPage() {
     }
   }, [searchMatchIndices]);
 
+  // 자동 스크롤 하단 이동 (초기 로딩 시에만)
   useEffect(() => {
-    if (scrollRef.current && !isSearchMode) {
+    if (scrollRef.current && !isSearchMode && isInitialLoad) {
       scrollRef.current.scrollIntoView({ behavior: "smooth" });
     }
-  }, [allMessagesInChat, isSearchMode]);
-
-  useEffect(() => {
-    setIsSearchMode(false);
-    setMessageSearchQuery("");
-    setCurrentSearchMatchIndex(-1);
-  }, [selectedChat]);
+  }, [allMessagesInChat, isSearchMode, isInitialLoad]);
 
   const handleSendMessage = async (content: string) => {
     const text = content.trim();
     if (!text || !selectedChat || !user || !db) return;
     
     setInputValue("");
+    setIsInitialLoad(true); // 새 메시지 보낼 때 하단으로 스크롤 강제
 
     try {
       const messageData: any = {
@@ -308,6 +346,13 @@ export default function ChatPage() {
 
             <ScrollArea className="flex-1 p-6 custom-scrollbar">
               <div className="flex flex-col gap-1 max-w-4xl mx-auto">
+                {/* 상단 무한 스크롤 트리거 */}
+                <div ref={topObserverRef} className="h-10 flex items-center justify-center">
+                   {allMessagesInChat.length >= messageLimit && (
+                     <Loader2 className="h-4 w-4 animate-spin text-muted-foreground opacity-50" />
+                   )}
+                </div>
+
                 {allMessagesInChat.length === 0 ? (
                   <div className="flex flex-col items-center justify-center h-full pt-20 text-muted-foreground">
                     <MessageSquarePlus className="h-12 w-12 mb-4 opacity-20" />
