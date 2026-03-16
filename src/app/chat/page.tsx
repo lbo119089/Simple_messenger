@@ -74,7 +74,7 @@ export default function ChatPage() {
     setIsMuted(false);
   }, [selectedChat]);
 
-  // 대화방 선택 시 또는 새로운 메시지 수신 시 읽음 처리
+  // 대화방 선택 시 읽음 처리
   useEffect(() => {
     if (!db || !user || !selectedChat) return;
 
@@ -90,7 +90,7 @@ export default function ChatPage() {
     };
 
     updateReadStatus();
-  }, [db, user, selectedChat]);
+  }, [db, user, selectedChat?.id]);
 
   const currentUserDocRef = useMemoFirebase(() => {
     if (!db || !user) return null;
@@ -183,12 +183,13 @@ export default function ChatPage() {
   useEffect(() => {
     if (allMessagesInChat.length > 0 && selectedChat && db && user) {
       const lastMsg = allMessagesInChat[allMessagesInChat.length - 1];
+      // 내가 보낸 메시지가 아닐 때만 읽음 처리 갱신
       if (lastMsg.senderId !== user.uid) {
         const readStatusRef = doc(db, "users", user.uid, "readStatus", selectedChat.id);
         setDoc(readStatusRef, { lastReadAt: serverTimestamp() }, { merge: true });
       }
     }
-  }, [allMessagesInChat, selectedChat, db, user]);
+  }, [allMessagesInChat, selectedChat?.id, db, user]);
 
   useEffect(() => {
     if (!topObserverRef.current || messagesLoading) return;
