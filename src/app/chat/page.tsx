@@ -23,9 +23,11 @@ export default function ChatPage() {
   const [messages, setMessages] = useState<any[]>([]);
   const [inputValue, setInputValue] = useState("");
   const [loading, setLoading] = useState(true);
+  const [isMounted, setIsMounted] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
+    setIsMounted(true);
     const fetchSession = async () => {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) {
@@ -50,7 +52,7 @@ export default function ChatPage() {
           username: p.username || "사용자",
           avatar_url: p.avatar_url || `https://picsum.photos/seed/${p.id}/200/200`,
         },
-        last_message: { content: "대화를 시작해보세요.", created_at: new Date().toISOString() },
+        last_message: { content: "대화를 시작해보세요.", created_at: new Date(0).toISOString() },
         unread: false,
       }));
   }, [profiles, user]);
@@ -71,7 +73,6 @@ export default function ChatPage() {
 
     fetchMessages();
 
-    // 더 안정적인 실시간 구독: 해당 사용자와 관련된 메시지 전체를 감시하고 클라이언트에서 필터링
     const channel = supabase
       .channel(`realtime-messages-${selectedUserId}`)
       .on('postgres_changes', { 
@@ -109,7 +110,7 @@ export default function ChatPage() {
     const text = content.trim();
     if (!text || !selectedUserId || !user) return;
     
-    setInputValue(""); // 즉시 입력창 비우기 (Optimistic UI)
+    setInputValue("");
 
     const { error } = await supabase
       .from('messages')
@@ -127,7 +128,7 @@ export default function ChatPage() {
         title: "전송 실패",
         description: error.message,
       });
-      setInputValue(text); // 실패 시 입력값 복구
+      setInputValue(text);
     }
   };
 
@@ -136,6 +137,8 @@ export default function ChatPage() {
     router.push("/");
   };
 
+  if (!isMounted || loading) return <div className="flex h-screen items-center justify-center bg-background">로딩 중...</div>;
+
   const selectedConversation = conversations.find(c => c.other_user.id === selectedUserId);
   const selectedUser = selectedConversation?.other_user;
 
@@ -143,8 +146,6 @@ export default function ChatPage() {
     sender: m.sender_id === user?.id ? "user" as const : "other" as const,
     content: m.content
   }));
-
-  if (loading) return <div className="flex h-screen items-center justify-center bg-background">로딩 중...</div>;
 
   return (
     <div className="flex h-screen w-full bg-background overflow-hidden">
@@ -183,8 +184,8 @@ export default function ChatPage() {
               </div>
             </header>
 
-            <ScrollArea className="flex-1 p-6 custom-scrollbar" viewportRef={scrollRef}>
-              <div className="flex flex-col gap-1 max-w-4xl mx-auto">
+            <ScrollArea className="flex-1 p-6 custom-scrollbar">
+              <div className="flex flex-col gap-1 max-w-4xl mx-auto" ref={scrollRef}>
                 {messages.length === 0 ? (
                   <div className="flex flex-col items-center justify-center h-full pt-20 text-muted-foreground">
                     <MessageSquarePlus className="h-12 w-12 mb-4 opacity-20" />

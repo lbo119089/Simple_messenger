@@ -9,12 +9,6 @@ import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
 
-interface Profile {
-  id: string;
-  username: string;
-  avatar_url: string;
-}
-
 interface ChatSidebarProps {
   currentUserId: string;
   conversations: any[];

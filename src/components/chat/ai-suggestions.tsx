@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useEffect, useState } from "react";
@@ -17,7 +18,7 @@ export function AiSuggestions({ messages, onSelect }: AiSuggestionsProps) {
   useEffect(() => {
     if (messages.length === 0) return;
     
-    // Only trigger if the last message was from "other"
+    // 상대방이 마지막으로 보낸 메시지에 대해서만 추천
     if (messages[messages.length - 1].sender !== "other") {
       setSuggestions([]);
       return;
@@ -27,7 +28,7 @@ export function AiSuggestions({ messages, onSelect }: AiSuggestionsProps) {
       setLoading(true);
       try {
         const input: AiReplySuggestionsInput = {
-          messages: messages.slice(-5), // Use last 5 messages for context
+          messages: messages.slice(-5), // 최근 5개 메시지 컨텍스트
         };
         const result = await aiReplySuggestions(input);
         setSuggestions(result.suggestions);
@@ -38,7 +39,7 @@ export function AiSuggestions({ messages, onSelect }: AiSuggestionsProps) {
       }
     }
 
-    const timer = setTimeout(fetchSuggestions, 1000); // Slight delay for natural feel
+    const timer = setTimeout(fetchSuggestions, 1000);
     return () => clearTimeout(timer);
   }, [messages]);
 
