@@ -10,8 +10,8 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Send, Phone, Video, Info, MoreVertical, MessageSquarePlus, Loader2 } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useAuth, useFirestore, useUser, useCollection } from "@/firebase";
-import { collection, query, where, addDoc, serverTimestamp } from "firebase/firestore";
+import { useAuth, useFirestore, useUser, useCollection, useDoc } from "@/firebase";
+import { collection, query, where, addDoc, serverTimestamp, doc } from "firebase/firestore";
 import { signOut } from "firebase/auth";
 import { useToast } from "@/hooks/use-toast";
 
@@ -36,6 +36,13 @@ export default function ChatPage() {
     }
   }, [user, userLoading, isMounted, router]);
 
+  // 내 프로필 정보 가져오기
+  const currentUserDocRef = useMemo(() => {
+    if (!db || !user) return null;
+    return doc(db, "users", user.uid);
+  }, [db, user]);
+  const { data: currentUserProfile } = useDoc(currentUserDocRef);
+
   const usersQuery = useMemo(() => {
     if (!db) return null;
     return query(collection(db, "users"));
@@ -52,7 +59,6 @@ export default function ChatPage() {
   
   const { data: rawMessages } = useCollection(messagesQuery);
 
-  // 메시지 정렬 로직 개선: 타임스탬프가 없는(서버 대기 중인) 메시지는 현재 시간을 기준으로 가장 하단에 배치
   const messages = useMemo(() => {
     if (!rawMessages || !selectedUserId) return [];
     
@@ -133,6 +139,7 @@ export default function ChatPage() {
     <div className="flex h-screen w-full bg-background overflow-hidden">
       <ChatSidebar
         currentUserId={user?.uid || ""}
+        currentUserProfile={currentUserProfile}
         users={usersData || []}
         selectedUserId={selectedUserId}
         onSelectUser={setSelectedUserId}

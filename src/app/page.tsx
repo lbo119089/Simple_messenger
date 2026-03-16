@@ -4,19 +4,23 @@ import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
-import { MessageSquare, ShieldCheck, Sparkles, Send, AlertCircle } from "lucide-react";
+import { MessageSquare, ShieldCheck, Sparkles, Send, AlertCircle, User, Check } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useAuth, useFirestore, useUser } from "@/firebase";
 import { signInWithEmailAndPassword, createUserWithEmailAndPassword, updateProfile } from "firebase/auth";
 import { doc, setDoc } from "firebase/firestore";
 import { useToast } from "@/hooks/use-toast";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { PlaceHolderImages } from "@/lib/placeholder-images";
+import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
+import { cn } from "@/lib/utils";
 
 export default function Home() {
   const [isLogin, setIsLogin] = useState(true);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [username, setUsername] = useState("");
+  const [selectedAvatar, setSelectedAvatar] = useState(PlaceHolderImages[0].imageUrl);
   const [loading, setLoading] = useState(false);
   
   const router = useRouter();
@@ -34,15 +38,11 @@ export default function Home() {
   const handleAuth = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    console.log("인증 시도 중...", { email, isLogin });
-
     if (!auth || !db) {
-      const errorMsg = "Firebase가 초기화되지 않았습니다. API 키 설정을 확인해주세요.";
-      console.error("Auth Error:", errorMsg);
       toast({
         variant: "destructive",
         title: "연결 오류",
-        description: errorMsg,
+        description: "Firebase 설정이 필요합니다.",
       });
       return;
     }
@@ -51,40 +51,29 @@ export default function Home() {
     try {
       if (isLogin) {
         await signInWithEmailAndPassword(auth, email, password);
-        console.log("로그인 성공");
       } else {
         const userCredential = await createUserWithEmailAndPassword(auth, email, password);
         const newUser = userCredential.user;
         
         await updateProfile(newUser, {
           displayName: username,
-          photoURL: `https://picsum.photos/seed/${newUser.uid}/200/200`
+          photoURL: selectedAvatar
         });
 
         await setDoc(doc(db, "users", newUser.uid), {
           username: username,
-          avatarUrl: `https://picsum.photos/seed/${newUser.uid}/200/200`,
-          id: newUser.uid
+          avatarUrl: selectedAvatar,
+          id: newUser.uid,
+          createdAt: new Date().toISOString()
         });
-        console.log("회원가입 및 프로필 저장 성공");
       }
       router.push("/chat");
     } catch (error: any) {
-      console.error("인증 실패 상세 로그:", error);
-      console.error("에러 코드:", error.code);
-      console.error("에러 메시지:", error.message);
-      
-      let message = "인증에 실패했습니다. 다시 시도해주세요.";
-      
-      if (error.code === "auth/configuration-not-found") {
-        message = "Firebase 콘솔에서 '이메일/비밀번호' 로그인이 비활성화되어 있습니다. 설정 가이드를 확인하세요.";
-      } else if (error.code === "auth/email-already-in-use") {
-        message = "이미 사용 중인 이메일 주소입니다.";
-      } else if (error.code === "auth/weak-password") {
-        message = "비밀번호는 6자리 이상이어야 합니다.";
-      } else if (error.code === "auth/user-not-found" || error.code === "auth/wrong-password" || error.code === "auth/invalid-credential") {
-        message = "이메일 또는 비밀번호가 일치하지 않습니다.";
-      }
+      console.error("Auth error:", error);
+      let message = "인증에 실패했습니다.";
+      if (error.code === "auth/email-already-in-use") message = "이미 사용 중인 이메일입니다.";
+      else if (error.code === "auth/weak-password") message = "비밀번호는 6자리 이상이어야 합니다.";
+      else if (error.code === "auth/invalid-credential") message = "정보가 일치하지 않습니다.";
 
       toast({
         variant: "destructive",
@@ -110,21 +99,14 @@ export default function Home() {
             <h1 className="text-4xl md:text-5xl font-bold tracking-tight">바이브챗</h1>
           </div>
           <h2 className="text-2xl md:text-3xl font-medium mb-6 leading-tight">
-            가장 편안하고 스마트한 실시간 메시징 경험
+            나만의 아바타로 스마트한 대화를 시작하세요
           </h2>
           <div className="space-y-6 text-primary-foreground/80">
             <div className="flex items-start gap-4">
-              <ShieldCheck className="h-6 w-6 text-accent mt-1" />
-              <div>
-                <h3 className="text-xl font-semibold text-white">안전한 Firebase 보안</h3>
-                <p>Firestore 보안 규칙으로 오직 본인만이 참여한 대화 내용을 확인할 수 있습니다.</p>
-              </div>
-            </div>
-            <div className="flex items-start gap-4">
               <Sparkles className="h-6 w-6 text-accent mt-1" />
               <div>
-                <h3 className="text-xl font-semibold text-white">AI 답장 제안</h3>
-                <p>Genkit AI가 상황에 맞는 최적의 답장을 추천해 소통이 더 빨라집니다.</p>
+                <h3 className="text-xl font-semibold text-white">커스텀 프로필 설정</h3>
+                <p>회원가입 시 원하는 아바타를 선택하고 언제든 변경할 수 있습니다.</p>
               </div>
             </div>
           </div>
@@ -133,37 +115,54 @@ export default function Home() {
 
       <div className="flex-1 flex items-center justify-center p-8 bg-background">
         <div className="w-full max-w-md space-y-6">
-          {!auth && (
-            <Alert variant="destructive">
-              <AlertCircle className="h-4 w-4" />
-              <AlertTitle>환경 설정 필요</AlertTitle>
-              <AlertDescription>
-                Firebase API 키가 유효하지 않습니다. 프로젝트 대시보드에서 설정을 완료해주세요.
-              </AlertDescription>
-            </Alert>
-          )}
-          
           <Card className="shadow-2xl border-none">
             <CardHeader className="text-center pb-2">
               <CardTitle className="text-2xl font-bold text-primary">
-                {isLogin ? "환영합니다!" : "새로운 시작"}
+                {isLogin ? "환영합니다!" : "프로필 설정"}
               </CardTitle>
               <CardDescription>
-                {isLogin ? "계정에 로그인하여 대화를 이어가세요." : "바이브챗과 함께 새로운 대화를 시작하세요."}
+                {isLogin ? "계정에 로그인하여 대화를 이어가세요." : "사용할 이름과 아바타를 선택해주세요."}
               </CardDescription>
             </CardHeader>
             <CardContent>
               <form onSubmit={handleAuth} className="space-y-4 pt-4">
                 {!isLogin && (
-                  <div className="space-y-2">
-                    <Input 
-                      placeholder="사용자 이름" 
-                      required 
-                      className="h-12 border-muted" 
-                      value={username}
-                      onChange={(e) => setUsername(e.target.value)}
-                    />
-                  </div>
+                  <>
+                    <div className="space-y-3">
+                      <label className="text-sm font-medium text-muted-foreground">아바타 선택</label>
+                      <div className="flex justify-center gap-4 py-2">
+                        {PlaceHolderImages.map((img) => (
+                          <div 
+                            key={img.id}
+                            className="relative cursor-pointer group"
+                            onClick={() => setSelectedAvatar(img.imageUrl)}
+                          >
+                            <Avatar className={cn(
+                              "h-16 w-16 border-4 transition-all duration-200",
+                              selectedAvatar === img.imageUrl ? "border-primary scale-110 shadow-lg" : "border-transparent opacity-60 grayscale-[50%] hover:opacity-100 hover:grayscale-0"
+                            )}>
+                              <AvatarImage src={img.imageUrl} />
+                              <AvatarFallback><User /></AvatarFallback>
+                            </Avatar>
+                            {selectedAvatar === img.imageUrl && (
+                              <div className="absolute -bottom-1 -right-1 bg-primary text-white rounded-full p-1 border-2 border-white shadow-sm">
+                                <Check className="h-3 w-3" />
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                    <div className="space-y-2">
+                      <Input 
+                        placeholder="사용자 이름" 
+                        required 
+                        className="h-12 border-muted" 
+                        value={username}
+                        onChange={(e) => setUsername(e.target.value)}
+                      />
+                    </div>
+                  </>
                 )}
                 <div className="space-y-2">
                   <Input 
@@ -185,23 +184,15 @@ export default function Home() {
                     onChange={(e) => setPassword(e.target.value)}
                   />
                 </div>
-                <Button type="submit" disabled={loading || !auth} className="w-full h-12 text-lg font-semibold bg-primary hover:bg-primary/90">
-                  {loading ? "처리 중..." : (isLogin ? "로그인" : "회원가입")}
+                <Button type="submit" disabled={loading} className="w-full h-12 text-lg font-semibold bg-primary hover:bg-primary/90">
+                  {loading ? "처리 중..." : (isLogin ? "로그인" : "회원가입 및 시작")}
                 </Button>
               </form>
             </CardContent>
             <CardFooter className="flex flex-col gap-4">
-              <div className="relative w-full text-center">
-                <div className="absolute inset-0 flex items-center">
-                  <span className="w-full border-t" />
-                </div>
-                <span className="relative bg-background px-2 text-xs text-muted-foreground uppercase">
-                  또는
-                </span>
-              </div>
               <Button
                 variant="link"
-                className="text-primary hover:text-primary/80"
+                className="text-primary"
                 onClick={() => setIsLogin(!isLogin)}
               >
                 {isLogin ? "아직 계정이 없으신가요? 회원가입" : "이미 계정이 있으신가요? 로그인"}

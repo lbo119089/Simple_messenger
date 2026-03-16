@@ -3,13 +3,19 @@
 import { useState } from "react";
 import { Input } from "@/components/ui/input";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { Search, Plus, MessageSquare, LogOut } from "lucide-react";
+import { Search, Plus, MessageSquare, LogOut, Settings, User, Check, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
+import { PlaceHolderImages } from "@/lib/placeholder-images";
+import { useFirestore } from "@/firebase";
+import { doc, updateDoc } from "firebase/firestore";
+import { useToast } from "@/hooks/use-toast";
 
 interface ChatSidebarProps {
   currentUserId: string;
+  currentUserProfile: any;
   users: any[];
   selectedUserId: string | null;
   onSelectUser: (userId: string) => void;
@@ -18,17 +24,50 @@ interface ChatSidebarProps {
 
 export function ChatSidebar({
   currentUserId,
+  currentUserProfile,
   users,
   selectedUserId,
   onSelectUser,
   onLogout,
 }: ChatSidebarProps) {
   const [searchQuery, setSearchQuery] = useState("");
+  const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
+  const [editUsername, setEditUsername] = useState(currentUserProfile?.username || "");
+  const [editAvatar, setEditAvatar] = useState(currentUserProfile?.avatarUrl || "");
+  const [isUpdating, setIsUpdating] = useState(false);
+  
+  const db = useFirestore();
+  const { toast } = useToast();
 
   const otherUsers = users.filter(u => u.id !== currentUserId);
   const filteredUsers = otherUsers.filter((u) =>
-    u.username.toLowerCase().includes(searchQuery.toLowerCase())
+    u.username?.toLowerCase().includes(searchQuery.toLowerCase())
   );
+
+  const handleUpdateProfile = async () => {
+    if (!db || !currentUserId) return;
+    
+    setIsUpdating(true);
+    try {
+      await updateDoc(doc(db, "users", currentUserId), {
+        username: editUsername,
+        avatarUrl: editAvatar
+      });
+      toast({
+        title: "프로필 업데이트 완료",
+        description: "사용자 정보가 성공적으로 변경되었습니다.",
+      });
+      setIsEditDialogOpen(false);
+    } catch (error: any) {
+      toast({
+        variant: "destructive",
+        title: "업데이트 실패",
+        description: error.message,
+      });
+    } finally {
+      setIsUpdating(false);
+    }
+  };
 
   return (
     <div className="flex flex-col h-full bg-white border-r border-border w-full md:w-[320px]">
@@ -38,9 +77,65 @@ export function ChatSidebar({
             <MessageSquare className="h-6 w-6" />
             바이브챗
           </h1>
-          <Button variant="ghost" size="icon" onClick={onLogout} title="Logout">
-            <LogOut className="h-5 w-5 text-muted-foreground" />
-          </Button>
+          <div className="flex items-center gap-1">
+            <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
+              <DialogTrigger asChild>
+                <Button variant="ghost" size="icon" title="Edit Profile">
+                  <Settings className="h-5 w-5 text-muted-foreground" />
+                </Button>
+              </DialogTrigger>
+              <DialogContent className="sm:max-w-md">
+                <DialogHeader>
+                  <DialogTitle>내 프로필 수정</DialogTitle>
+                </DialogHeader>
+                <div className="space-y-6 py-4">
+                  <div className="flex flex-col items-center gap-4">
+                    <label className="text-sm font-medium text-muted-foreground self-start">아바타 변경</label>
+                    <div className="flex flex-wrap justify-center gap-3">
+                      {PlaceHolderImages.map((img) => (
+                        <div 
+                          key={img.id}
+                          className="relative cursor-pointer"
+                          onClick={() => setEditAvatar(img.imageUrl)}
+                        >
+                          <Avatar className={cn(
+                            "h-12 w-12 border-2 transition-all",
+                            editAvatar === img.imageUrl ? "border-primary scale-110" : "border-transparent opacity-60 grayscale-[50%] hover:opacity-100 hover:grayscale-0"
+                          )}>
+                            <AvatarImage src={img.imageUrl} />
+                            <AvatarFallback><User /></AvatarFallback>
+                          </Avatar>
+                          {editAvatar === img.imageUrl && (
+                            <div className="absolute -bottom-1 -right-1 bg-primary text-white rounded-full p-0.5 border-2 border-white shadow-sm">
+                              <Check className="h-2 w-2" />
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium text-muted-foreground">이름</label>
+                    <Input 
+                      value={editUsername}
+                      onChange={(e) => setEditUsername(e.target.value)}
+                      placeholder="이름을 입력하세요"
+                    />
+                  </div>
+                </div>
+                <DialogFooter>
+                  <Button variant="outline" onClick={() => setIsEditDialogOpen(false)}>취소</Button>
+                  <Button onClick={handleUpdateProfile} disabled={isUpdating}>
+                    {isUpdating ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+                    저장하기
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
+            <Button variant="ghost" size="icon" onClick={onLogout} title="Logout">
+              <LogOut className="h-5 w-5 text-muted-foreground" />
+            </Button>
+          </div>
         </div>
 
         <div className="relative">
@@ -80,7 +175,7 @@ export function ChatSidebar({
                 <div className="flex-1 text-left overflow-hidden">
                   <div className="font-semibold truncate">{user.username}</div>
                   <div className="text-xs text-muted-foreground truncate">
-                    상태 메시지가 없습니다.
+                    {selectedUserId === user.id ? "대화 중..." : "최근 활동 중"}
                   </div>
                 </div>
               </button>
@@ -93,10 +188,17 @@ export function ChatSidebar({
         </div>
       </ScrollArea>
 
-      <div className="p-4 border-t border-border">
-        <Button className="w-full bg-accent hover:bg-accent/90 text-accent-foreground">
-          <Plus className="h-4 w-4 mr-2" /> 새로운 친구 추가
-        </Button>
+      <div className="p-4 border-t border-border mt-auto">
+        <div className="flex items-center gap-3 p-3 bg-muted/50 rounded-xl">
+          <Avatar className="h-10 w-10">
+            <AvatarImage src={currentUserProfile?.avatarUrl} />
+            <AvatarFallback>{currentUserProfile?.username?.[0] || <User />}</AvatarFallback>
+          </Avatar>
+          <div className="flex-1 overflow-hidden">
+            <p className="text-sm font-bold truncate">{currentUserProfile?.username}</p>
+            <p className="text-[10px] text-muted-foreground truncate">내 프로필</p>
+          </div>
+        </div>
       </div>
     </div>
   );
