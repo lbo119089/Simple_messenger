@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useState } from "react";
@@ -5,22 +6,59 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { MessageSquare, ShieldCheck, Sparkles, Send } from "lucide-react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { useAuth, useFirestore } from "@/firebase";
+import { signInWithEmailAndPassword, createUserWithEmailAndPassword, updateProfile } from "firebase/auth";
+import { doc, setDoc } from "firebase/firestore";
+import { useToast } from "@/hooks/use-toast";
 
 export default function Home() {
   const [isLogin, setIsLogin] = useState(true);
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [username, setUsername] = useState("");
+  const [loading, setLoading] = useState(false);
+  
   const router = useRouter();
+  const auth = useAuth();
+  const db = useFirestore();
+  const { toast } = useToast();
 
-  const handleAuth = (e: React.FormEvent) => {
+  const handleAuth = async (e: React.FormEvent) => {
     e.preventDefault();
-    // Simulate auth success
-    router.push("/chat");
+    if (!auth || !db) return;
+    
+    setLoading(true);
+    try {
+      if (isLogin) {
+        await signInWithEmailAndPassword(auth, email, password);
+      } else {
+        const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+        const user = userCredential.user;
+        
+        // Update Firebase Auth profile
+        await updateProfile(user, { displayName: username });
+        
+        // Create Firestore user document
+        await setDoc(doc(db, "users", user.uid), {
+          username,
+          avatarUrl: `https://picsum.photos/seed/${user.uid}/200/200`,
+        });
+      }
+      router.push("/chat");
+    } catch (error: any) {
+      toast({
+        variant: "destructive",
+        title: "오류 발생",
+        description: error.message || "인증에 실패했습니다.",
+      });
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
     <div className="min-h-screen flex flex-col md:flex-row bg-background">
-      {/* Hero Section */}
       <div className="flex-1 flex flex-col justify-center p-8 md:p-16 lg:p-24 bg-primary text-primary-foreground relative overflow-hidden">
         <div className="absolute top-[-10%] right-[-10%] w-[50%] h-[50%] bg-accent opacity-10 rounded-full blur-[100px]" />
         <div className="relative z-10 max-w-xl">
@@ -38,7 +76,7 @@ export default function Home() {
               <ShieldCheck className="h-6 w-6 text-accent mt-1" />
               <div>
                 <h3 className="text-xl font-semibold text-white">안전한 1:1 대화</h3>
-                <p>Supabase Auth 기반의 보안으로 오직 두 사람만의 비공개 대화.</p>
+                <p>Firebase Auth 기반의 보안으로 오직 두 사람만의 비공개 대화.</p>
               </div>
             </div>
             <div className="flex items-start gap-4">
@@ -59,7 +97,6 @@ export default function Home() {
         </div>
       </div>
 
-      {/* Auth Section */}
       <div className="flex-1 flex items-center justify-center p-8 bg-background">
         <Card className="w-full max-w-md shadow-2xl border-none">
           <CardHeader className="text-center pb-2">
@@ -74,17 +111,37 @@ export default function Home() {
             <form onSubmit={handleAuth} className="space-y-4 pt-4">
               {!isLogin && (
                 <div className="space-y-2">
-                  <Input placeholder="사용자 이름" required className="h-12 border-muted" />
+                  <Input 
+                    placeholder="사용자 이름" 
+                    required 
+                    className="h-12 border-muted" 
+                    value={username}
+                    onChange={(e) => setUsername(e.target.value)}
+                  />
                 </div>
               )}
               <div className="space-y-2">
-                <Input type="email" placeholder="이메일 주소" required className="h-12 border-muted" />
+                <Input 
+                  type="email" 
+                  placeholder="이메일 주소" 
+                  required 
+                  className="h-12 border-muted" 
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                />
               </div>
               <div className="space-y-2">
-                <Input type="password" placeholder="비밀번호" required className="h-12 border-muted" />
+                <Input 
+                  type="password" 
+                  placeholder="비밀번호" 
+                  required 
+                  className="h-12 border-muted" 
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                />
               </div>
-              <Button type="submit" className="w-full h-12 text-lg font-semibold bg-primary hover:bg-primary/90">
-                {isLogin ? "로그인" : "회원가입"}
+              <Button type="submit" disabled={loading} className="w-full h-12 text-lg font-semibold bg-primary hover:bg-primary/90">
+                {loading ? "처리 중..." : (isLogin ? "로그인" : "회원가입")}
               </Button>
             </form>
           </CardContent>
