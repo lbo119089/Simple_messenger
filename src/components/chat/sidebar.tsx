@@ -1,4 +1,3 @@
-
 "use client";
 
 import { useState } from "react";
@@ -11,7 +10,7 @@ import { cn } from "@/lib/utils";
 
 interface ChatSidebarProps {
   currentUserId: string;
-  conversations: any[];
+  users: any[];
   selectedUserId: string | null;
   onSelectUser: (userId: string) => void;
   onLogout: () => void;
@@ -19,15 +18,16 @@ interface ChatSidebarProps {
 
 export function ChatSidebar({
   currentUserId,
-  conversations,
+  users,
   selectedUserId,
   onSelectUser,
   onLogout,
 }: ChatSidebarProps) {
   const [searchQuery, setSearchQuery] = useState("");
 
-  const filteredConversations = conversations.filter((c) =>
-    c.other_user.username.toLowerCase().includes(searchQuery.toLowerCase())
+  const otherUsers = users.filter(u => u.id !== currentUserId);
+  const filteredUsers = otherUsers.filter((u) =>
+    u.username.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
   return (
@@ -46,7 +46,7 @@ export function ChatSidebar({
         <div className="relative">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input
-            placeholder="대화 검색..."
+            placeholder="친구 검색..."
             className="pl-9 bg-background border-none ring-offset-background focus-visible:ring-1"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
@@ -57,48 +57,45 @@ export function ChatSidebar({
       <ScrollArea className="flex-1 custom-scrollbar">
         <div className="px-2">
           <div className="px-4 py-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-            최근 대화
+            친구 목록
           </div>
-          {filteredConversations.length > 0 ? (
-            filteredConversations.map((conv) => (
+          {filteredUsers.length > 0 ? (
+            filteredUsers.map((user) => (
               <button
-                key={conv.other_user.id}
-                onClick={() => onSelectUser(conv.other_user.id)}
+                key={user.id}
+                onClick={() => onSelectUser(user.id)}
                 className={cn(
                   "w-full flex items-center gap-3 p-3 rounded-lg transition-colors group mb-1",
-                  selectedUserId === conv.other_user.id
+                  selectedUserId === user.id
                     ? "bg-secondary text-primary"
                     : "hover:bg-muted"
                 )}
               >
                 <Avatar className="h-12 w-12 border-2 border-transparent group-hover:border-primary/20">
-                  <AvatarImage src={conv.other_user.avatar_url} />
+                  <AvatarImage src={user.avatarUrl} />
                   <AvatarFallback className="bg-primary/10 text-primary">
-                    {conv.other_user.username ? conv.other_user.username[0].toUpperCase() : "?"}
+                    {user.username ? user.username[0].toUpperCase() : "?"}
                   </AvatarFallback>
                 </Avatar>
                 <div className="flex-1 text-left overflow-hidden">
-                  <div className="font-semibold truncate">{conv.other_user.username}</div>
+                  <div className="font-semibold truncate">{user.username}</div>
                   <div className="text-xs text-muted-foreground truncate">
-                    {conv.last_message.content}
+                    상태 메시지가 없습니다.
                   </div>
                 </div>
-                {conv.unread && (
-                  <div className="h-2 w-2 rounded-full bg-accent" />
-                )}
               </button>
             ))
           ) : (
             <div className="p-8 text-center text-muted-foreground text-sm">
-              대화가 없습니다.
+              친구가 없습니다.
             </div>
           )}
         </div>
       </ScrollArea>
 
       <div className="p-4 border-t border-border">
-        <Button className="w-full bg-accent hover:bg-accent/90 text-accent-foreground" onClick={() => onSelectUser("new")}>
-          <Plus className="h-4 w-4 mr-2" /> 새 대화 시작하기
+        <Button className="w-full bg-accent hover:bg-accent/90 text-accent-foreground">
+          <Plus className="h-4 w-4 mr-2" /> 새로운 친구 추가
         </Button>
       </div>
     </div>

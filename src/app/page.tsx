@@ -6,7 +6,9 @@ import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { MessageSquare, ShieldCheck, Sparkles, Send } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { supabase } from "@/lib/supabase";
+import { useAuth, useFirestore, useUser } from "@/firebase";
+import { signInWithEmailAndPassword, createUserWithEmailAndPassword, updateProfile } from "firebase/auth";
+import { doc, setDoc } from "firebase/firestore";
 import { useToast } from "@/hooks/use-toast";
 
 export default function Home() {
@@ -18,39 +20,39 @@ export default function Home() {
   
   const router = useRouter();
   const { toast } = useToast();
+  const auth = useAuth();
+  const db = useFirestore();
+  const { user, isLoading } = useUser();
 
   useEffect(() => {
-    const checkUser = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (session) router.push("/chat");
-    };
-    checkUser();
-  }, [router]);
+    if (!isLoading && user) {
+      router.push("/chat");
+    }
+  }, [user, isLoading, router]);
 
   const handleAuth = async (e: React.FormEvent) => {
     e.preventDefault();
-    setLoading(true);
+    if (!auth || !db) return;
     
+    setLoading(true);
     try {
       if (isLogin) {
-        const { error } = await supabase.auth.signInWithPassword({ email, password });
-        if (error) throw error;
+        await signInWithEmailAndPassword(auth, email, password);
       } else {
-        const { data, error: signUpError } = await supabase.auth.signUp({ 
-          email, 
-          password,
-          options: {
-            data: { username }
-          }
-        });
-        if (signUpError) throw signUpError;
+        const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+        const newUser = userCredential.user;
         
-        if (data.user) {
-          const { error: profileError } = await supabase
-            .from('profiles')
-            .insert([{ id: data.user.id, username, avatar_url: `https://picsum.photos/seed/${data.user.id}/200/200` }]);
-          if (profileError) throw profileError;
-        }
+        // Update Firebase Auth profile
+        await updateProfile(newUser, {
+          displayName: username,
+          photoURL: `https://picsum.photos/seed/${newUser.uid}/200/200`
+        });
+
+        // Save to Firestore
+        await setDoc(doc(db, "users", newUser.uid), {
+          username: username,
+          avatarUrl: `https://picsum.photos/seed/${newUser.uid}/200/200`
+        });
       }
       router.push("/chat");
     } catch (error: any) {
@@ -63,6 +65,8 @@ export default function Home() {
       setLoading(false);
     }
   };
+
+  if (isLoading) return null;
 
   return (
     <div className="min-h-screen flex flex-col md:flex-row bg-background">
@@ -82,22 +86,22 @@ export default function Home() {
             <div className="flex items-start gap-4">
               <ShieldCheck className="h-6 w-6 text-accent mt-1" />
               <div>
-                <h3 className="text-xl font-semibold text-white">안전한 Supabase 보안</h3>
-                <p>강력한 RLS 정책으로 오직 본인만이 대화 내용을 확인할 수 있습니다.</p>
+                <h3 className="text-xl font-semibold text-white">안전한 Firebase 보안</h3>
+                <p>Firestore 보안 규칙으로 오직 본인만이 참여한 대화 내용을 확인할 수 있습니다.</p>
               </div>
             </div>
             <div className="flex items-start gap-4">
               <Sparkles className="h-6 w-6 text-accent mt-1" />
               <div>
                 <h3 className="text-xl font-semibold text-white">AI 답장 제안</h3>
-                <p>상황에 맞는 최적의 답장을 추천받아 더 빠르게 소통하세요.</p>
+                <p>Genkit AI가 상황에 맞는 최적의 답장을 추천해 소통이 더 빨라집니다.</p>
               </div>
             </div>
             <div className="flex items-start gap-4">
               <Send className="h-6 w-6 text-accent mt-1" />
               <div>
                 <h3 className="text-xl font-semibold text-white">실시간 동기화</h3>
-                <p>Supabase Realtime을 통해 지연 없는 대화를 즐기세요.</p>
+                <p>Firestore 실시간 리스너를 통해 지연 없는 대화를 즐기세요.</p>
               </div>
             </div>
           </div>

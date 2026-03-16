@@ -1,4 +1,3 @@
-
 "use client";
 
 import { useState, useEffect, useRef, useMemo } from "react";
@@ -11,118 +10,74 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Send, Phone, Video, Info, MoreVertical, MessageSquarePlus } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { supabase } from "@/lib/supabase";
+import { useAuth, useFirestore, useUser, useCollection } from "@/firebase";
+import { collection, query, where, orderBy, addDoc, serverTimestamp, Timestamp } from "firebase/firestore";
+import { signOut } from "firebase/auth";
 import { useToast } from "@/hooks/use-toast";
 
 export default function ChatPage() {
   const router = useRouter();
   const { toast } = useToast();
-  const [user, setUser] = useState<any>(null);
-  const [profiles, setProfiles] = useState<any[]>([]);
+  const auth = useAuth();
+  const db = useFirestore();
+  const { user, isLoading: userLoading } = useUser();
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
-  const [messages, setMessages] = useState<any[]>([]);
   const [inputValue, setInputValue] = useState("");
-  const [loading, setLoading] = useState(true);
   const [isMounted, setIsMounted] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     setIsMounted(true);
-    const fetchSession = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) {
-        router.push("/");
-      } else {
-        setUser(session.user);
-        const { data } = await supabase.from('profiles').select('*');
-        setProfiles(data || []);
-      }
-      setLoading(false);
-    };
-    fetchSession();
-  }, [router]);
+  }, []);
 
-  const conversations = useMemo(() => {
-    if (!profiles || !user) return [];
-    return profiles
-      .filter(p => p.id !== user.id)
-      .map(p => ({
-        other_user: {
-          id: p.id,
-          username: p.username || "사용자",
-          avatar_url: p.avatar_url || `https://picsum.photos/seed/${p.id}/200/200`,
-        },
-        last_message: { content: "대화를 시작해보세요.", created_at: new Date(0).toISOString() },
-        unread: false,
-      }));
-  }, [profiles, user]);
+  // Fetch all users to show in sidebar
+  const usersQuery = useMemo(() => {
+    if (!db) return null;
+    return query(collection(db, "users"));
+  }, [db]);
+  const { data: usersData, isLoading: usersLoading } = useCollection(usersQuery);
 
-  useEffect(() => {
-    if (!selectedUserId || !user) return;
+  // Fetch messages for selected conversation
+  const messagesQuery = useMemo(() => {
+    if (!db || !user || !selectedUserId) return null;
+    return query(
+      collection(db, "messages"),
+      where("participants", "array-contains", user.uid),
+      orderBy("createdAt", "asc")
+    );
+  }, [db, user, selectedUserId]);
+  
+  const { data: rawMessages } = useCollection(messagesQuery);
 
-    const fetchMessages = async () => {
-      const { data, error } = await supabase
-        .from('messages')
-        .select('*')
-        .or(`and(sender_id.eq.${user.id},receiver_id.eq.${selectedUserId}),and(sender_id.eq.${selectedUserId},receiver_id.eq.${user.id})`)
-        .order('created_at', { ascending: true });
-      
-      if (error) console.error(error);
-      else setMessages(data || []);
-    };
-
-    fetchMessages();
-
-    const channel = supabase
-      .channel(`realtime-messages-${selectedUserId}`)
-      .on('postgres_changes', { 
-        event: 'INSERT', 
-        schema: 'public', 
-        table: 'messages'
-      }, (payload) => {
-        const newMessage = payload.new;
-        const isRelevant = 
-          (newMessage.sender_id === user.id && newMessage.receiver_id === selectedUserId) ||
-          (newMessage.sender_id === selectedUserId && newMessage.receiver_id === user.id);
-        
-        if (isRelevant) {
-          setMessages((prev) => {
-            if (prev.find(m => m.id === newMessage.id)) return prev;
-            return [...prev, newMessage];
-          });
-        }
-      })
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [selectedUserId, user]);
+  // Filter messages for the specific peer
+  const messages = useMemo(() => {
+    if (!rawMessages || !selectedUserId) return [];
+    return rawMessages.filter((msg: any) => 
+      msg.participants.includes(selectedUserId)
+    );
+  }, [rawMessages, selectedUserId]);
 
   useEffect(() => {
     if (scrollRef.current) {
-      const scrollElement = scrollRef.current;
-      scrollElement.scrollTop = scrollElement.scrollHeight;
+      scrollRef.current.scrollIntoView({ behavior: "smooth" });
     }
   }, [messages]);
 
   const handleSendMessage = async (content: string) => {
     const text = content.trim();
-    if (!text || !selectedUserId || !user) return;
+    if (!text || !selectedUserId || !user || !db) return;
     
     setInputValue("");
 
-    const { error } = await supabase
-      .from('messages')
-      .insert([
-        { 
-          sender_id: user.id, 
-          receiver_id: selectedUserId, 
-          content: text 
-        }
-      ]);
-
-    if (error) {
+    try {
+      await addDoc(collection(db, "messages"), {
+        senderId: user.uid,
+        receiverId: selectedUserId,
+        participants: [user.uid, selectedUserId],
+        content: text,
+        createdAt: serverTimestamp()
+      });
+    } catch (error: any) {
       toast({
         variant: "destructive",
         title: "전송 실패",
@@ -133,25 +88,35 @@ export default function ChatPage() {
   };
 
   const handleLogout = async () => {
-    await supabase.auth.signOut();
-    router.push("/");
+    if (auth) {
+      await signOut(auth);
+      router.push("/");
+    }
   };
 
-  if (!isMounted || loading) return <div className="flex h-screen items-center justify-center bg-background">로딩 중...</div>;
+  if (!isMounted || userLoading || usersLoading) {
+    return (
+      <div className="flex h-screen items-center justify-center bg-background">
+        <div className="flex flex-col items-center gap-4">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
+          <p className="text-muted-foreground animate-pulse">대화 불러오는 중...</p>
+        </div>
+      </div>
+    );
+  }
 
-  const selectedConversation = conversations.find(c => c.other_user.id === selectedUserId);
-  const selectedUser = selectedConversation?.other_user;
+  const selectedUser = usersData?.find(u => u.id === selectedUserId);
 
-  const aiMessageFormat = messages.slice(-5).map(m => ({
-    sender: m.sender_id === user?.id ? "user" as const : "other" as const,
+  const aiMessageFormat = messages.slice(-5).map((m: any) => ({
+    sender: m.senderId === user?.uid ? "user" as const : "other" as const,
     content: m.content
   }));
 
   return (
     <div className="flex h-screen w-full bg-background overflow-hidden">
       <ChatSidebar
-        currentUserId={user?.id}
-        conversations={conversations}
+        currentUserId={user?.uid || ""}
+        users={usersData || []}
         selectedUserId={selectedUserId}
         onSelectUser={setSelectedUserId}
         onLogout={handleLogout}
@@ -163,7 +128,7 @@ export default function ChatPage() {
             <header className="h-16 flex items-center justify-between px-6 bg-white border-b border-border z-10">
               <div className="flex items-center gap-3">
                 <Avatar className="h-10 w-10">
-                  <AvatarImage src={selectedUser.avatar_url} />
+                  <AvatarImage src={selectedUser.avatarUrl} />
                   <AvatarFallback className="bg-primary/10 text-primary">
                     {selectedUser.username ? selectedUser.username[0].toUpperCase() : "?"}
                   </AvatarFallback>
@@ -185,22 +150,23 @@ export default function ChatPage() {
             </header>
 
             <ScrollArea className="flex-1 p-6 custom-scrollbar">
-              <div className="flex flex-col gap-1 max-w-4xl mx-auto" ref={scrollRef}>
+              <div className="flex flex-col gap-1 max-w-4xl mx-auto">
                 {messages.length === 0 ? (
                   <div className="flex flex-col items-center justify-center h-full pt-20 text-muted-foreground">
                     <MessageSquarePlus className="h-12 w-12 mb-4 opacity-20" />
                     <p>메시지를 보내 대화를 시작해보세요!</p>
                   </div>
                 ) : (
-                  messages.map((msg) => (
+                  messages.map((msg: any) => (
                     <MessageBubble
                       key={msg.id}
                       content={msg.content}
-                      timestamp={msg.created_at}
-                      isUser={msg.sender_id === user.id}
+                      timestamp={msg.createdAt?.toDate?.()?.toISOString() || new Date().toISOString()}
+                      isUser={msg.senderId === user?.uid}
                     />
                   ))
                 )}
+                <div ref={scrollRef} />
               </div>
             </ScrollArea>
 
@@ -239,13 +205,8 @@ export default function ChatPage() {
             </div>
             <h2 className="text-2xl font-bold text-foreground mb-2">당신의 이야기를 시작하세요</h2>
             <p className="text-muted-foreground max-w-xs">
-              왼쪽 목록에서 대화를 선택하거나 새 대화를 시작하여 친구와 실시간으로 소통해보세요.
+              왼쪽 목록에서 대화를 선택하거나 친구의 이름을 검색하여 실시간으로 소통해보세요.
             </p>
-            {conversations.length > 0 && (
-              <Button className="mt-8 bg-primary hover:bg-primary/90 px-8" onClick={() => setSelectedUserId(conversations[0]?.other_user?.id || null)}>
-                최근 대화 보기
-              </Button>
-            )}
           </div>
         )}
       </div>
