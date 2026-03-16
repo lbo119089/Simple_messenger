@@ -8,14 +8,16 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { Send, Info, MoreVertical, MessageSquarePlus, Loader2, Users, Search, X, ChevronUp, ChevronDown } from "lucide-react";
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription, SheetTrigger } from "@/components/ui/sheet";
+import { Send, Info, MoreVertical, MessageSquarePlus, Loader2, Users, Search, X, ChevronUp, ChevronDown, User } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useAuth, useFirestore, useUser, useCollection, useDoc, useMemoFirebase } from "@/firebase";
 import { collection, query, where, addDoc, serverTimestamp, doc, limit } from "firebase/firestore";
 import { signOut } from "firebase/auth";
 import { useToast } from "@/hooks/use-toast";
+import { Separator } from "@/components/ui/separator";
 
-const INITIAL_MESSAGE_LIMIT = 100; // 초기 로딩량을 넉넉히 설정
+const INITIAL_MESSAGE_LIMIT = 100;
 const LOAD_MORE_STEP = 50;
 
 export default function ChatPage() {
@@ -49,7 +51,6 @@ export default function ChatPage() {
     }
   }, [user, userLoading, isMounted, router, isLoggingOut]);
 
-  // 대화방 변경 시 상태 초기화
   useEffect(() => {
     setMessageLimit(INITIAL_MESSAGE_LIMIT);
     setIsInitialLoad(true);
@@ -97,11 +98,21 @@ export default function ChatPage() {
     }
   }, [selectedChat, allUsers, userGroups]);
 
-  // 쿼리 단순화: 인덱스 오류를 피하기 위해 orderBy를 제거하고 participants 필터만 사용
+  const chatMembers = useMemo(() => {
+    if (!selectedChat || !allUsers || !user) return [];
+    
+    if (selectedChat.type === "private") {
+      const otherUser = allUsers.find(u => u.id === selectedChat.id);
+      const me = allUsers.find(u => u.id === user.uid);
+      return [me, otherUser].filter(Boolean);
+    } else if (selectedChat.type === "group" && selectedInfo) {
+      return allUsers.filter(u => selectedInfo.members.includes(u.id));
+    }
+    return [];
+  }, [selectedChat, allUsers, user, selectedInfo]);
+
   const messagesQuery = useMemoFirebase(() => {
     if (!db || !user || !selectedChat) return null;
-    
-    // participants 필터링만 수행하여 인덱스 없이도 즉시 데이터가 나오도록 함
     return query(
       collection(db, "messages"),
       where("participants", "array-contains", user.uid),
@@ -114,18 +125,15 @@ export default function ChatPage() {
   const allMessagesInChat = useMemo(() => {
     if (!rawMessages || !selectedChat) return [];
     
-    // 클라이언트 측 필터링: 현재 선택된 방의 메시지만 걸러냄
     const filtered = rawMessages.filter((msg: any) => {
       if (selectedChat.type === "group") {
         return msg.groupId === selectedChat.id;
       } else {
-        // 1:1 채팅: groupId가 없거나 null이고, 상대방이 참여자에 포함되어야 함
         return (!msg.groupId || msg.groupId === null) && 
                msg.participants?.includes(selectedChat.id);
       }
     });
 
-    // 클라이언트 측 정렬 (Firestore 인덱스 오류 방지)
     return [...filtered].sort((a: any, b: any) => {
       const timeA = a.createdAt?.toMillis?.() || a.createdAt?.seconds * 1000 || 0;
       const timeB = b.createdAt?.toMillis?.() || b.createdAt?.seconds * 1000 || 0;
@@ -133,7 +141,6 @@ export default function ChatPage() {
     });
   }, [rawMessages, selectedChat]);
 
-  // 스크롤 감지를 통한 추가 로드
   useEffect(() => {
     if (!topObserverRef.current || messagesLoading) return;
 
@@ -151,7 +158,6 @@ export default function ChatPage() {
     return () => observer.disconnect();
   }, [rawMessages.length, messageLimit, messagesLoading]);
 
-  // 검색 기능
   const searchMatchIndices = useMemo(() => {
     if (!messageSearchQuery.trim() || !isSearchMode) return [];
     return allMessagesInChat
@@ -167,7 +173,6 @@ export default function ChatPage() {
     }
   }, [searchMatchIndices]);
 
-  // 초기 로딩 시 하단으로 자동 스크롤
   useEffect(() => {
     if (scrollRef.current && !isSearchMode && isInitialLoad && allMessagesInChat.length > 0) {
       scrollRef.current.scrollIntoView({ behavior: "auto" });
@@ -289,7 +294,62 @@ export default function ChatPage() {
                 >
                   <Search className="h-5 w-5" />
                 </Button>
-                <Button variant="ghost" size="icon"><Info className="h-5 w-5 text-muted-foreground" /></Button>
+                
+                <Sheet>
+                  <SheetTrigger asChild>
+                    <Button variant="ghost" size="icon">
+                      <Info className="h-5 w-5 text-muted-foreground" />
+                    </Button>
+                  </SheetTrigger>
+                  <SheetContent side="right" className="w-[300px] sm:w-[400px] p-0">
+                    <div className="flex flex-col h-full">
+                      <SheetHeader className="p-6 text-left border-b">
+                        <SheetTitle className="text-xl font-bold flex items-center gap-2">
+                          {selectedChat.type === "group" ? <Users className="h-5 w-5" /> : <User className="h-5 w-5" />}
+                          대화방 정보
+                        </SheetTitle>
+                        <SheetDescription>
+                          {selectedChat.type === "group" ? `${selectedInfo.name} 그룹 채팅방` : `${selectedInfo.username}님과의 대화`}
+                        </SheetDescription>
+                      </SheetHeader>
+                      
+                      <div className="flex-1 overflow-y-auto">
+                        <div className="p-6 space-y-6">
+                          <div>
+                            <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-4">참여 멤버 ({chatMembers.length})</h3>
+                            <div className="space-y-4">
+                              {chatMembers.map((member: any) => (
+                                <div key={member.id} className="flex items-center gap-3">
+                                  <Avatar className="h-10 w-10">
+                                    <AvatarImage src={member.avatarUrl} />
+                                    <AvatarFallback>{member.username?.[0]}</AvatarFallback>
+                                  </Avatar>
+                                  <div className="flex-1 overflow-hidden">
+                                    <p className="text-sm font-bold truncate flex items-center gap-2">
+                                      {member.username}
+                                      {member.id === user.uid && <span className="text-[10px] bg-primary/10 text-primary px-1.5 py-0.5 rounded-full font-normal">나</span>}
+                                    </p>
+                                    <p className="text-xs text-muted-foreground truncate">최근 활동 중</p>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                          
+                          <Separator />
+                          
+                          <div>
+                            <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-4">채팅 설정</h3>
+                            <Button variant="outline" className="w-full justify-start text-destructive hover:text-destructive hover:bg-destructive/5 border-destructive/20">
+                              대화방 나가기
+                            </Button>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </SheetContent>
+                </Sheet>
+
                 <Button variant="ghost" size="icon"><MoreVertical className="h-5 w-5 text-muted-foreground" /></Button>
               </div>
             </header>
