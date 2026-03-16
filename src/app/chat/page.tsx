@@ -42,7 +42,6 @@ export default function ChatPage() {
   }, [db]);
   const { data: usersData, isLoading: usersLoading } = useCollection(usersQuery);
 
-  // 인덱스 오류를 피하기 위해 orderBy를 제거하고 클라이언트에서 정렬합니다.
   const messagesQuery = useMemo(() => {
     if (!db || !user || !selectedUserId) return null;
     return query(
@@ -53,16 +52,19 @@ export default function ChatPage() {
   
   const { data: rawMessages } = useCollection(messagesQuery);
 
-  // 선택된 사용자와의 메시지만 필터링하고 시간순으로 정렬합니다.
+  // 메시지 정렬 로직 개선: 타임스탬프가 없는(서버 대기 중인) 메시지는 현재 시간을 기준으로 가장 하단에 배치
   const messages = useMemo(() => {
     if (!rawMessages || !selectedUserId) return [];
+    
+    const now = Date.now();
+
     return rawMessages
       .filter((msg: any) => 
         msg.participants && msg.participants.includes(selectedUserId)
       )
       .sort((a: any, b: any) => {
-        const timeA = a.createdAt?.toMillis?.() || 0;
-        const timeB = b.createdAt?.toMillis?.() || 0;
+        const timeA = a.createdAt?.toMillis?.() || now;
+        const timeB = b.createdAt?.toMillis?.() || now;
         return timeA - timeB;
       });
   }, [rawMessages, selectedUserId]);
