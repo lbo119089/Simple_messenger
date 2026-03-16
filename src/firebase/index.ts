@@ -5,8 +5,8 @@ import { firebaseConfig } from './config';
 
 export function initializeFirebase() {
   // API Key가 없는 경우 초기화를 방지하여 런타임 에러 방어
-  if (!firebaseConfig.apiKey) {
-    console.warn("Firebase API Key is missing. Please check your environment variables.");
+  if (!firebaseConfig.apiKey || firebaseConfig.apiKey.includes("PLACEHOLDER")) {
+    console.warn("Firebase API Key is missing or invalid. Please check your config.");
     return { app: null, auth: null, db: null };
   }
 
