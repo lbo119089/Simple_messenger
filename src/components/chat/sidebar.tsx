@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useState } from "react";
@@ -79,7 +80,7 @@ export function ChatSidebar({
                 <Avatar className="h-12 w-12 border-2 border-transparent group-hover:border-primary/20">
                   <AvatarImage src={conv.other_user.avatar_url} />
                   <AvatarFallback className="bg-primary/10 text-primary">
-                    {conv.other_user.username[0].toUpperCase()}
+                    {conv.other_user.username ? conv.other_user.username[0].toUpperCase() : "?"}
                   </AvatarFallback>
                 </Avatar>
                 <div className="flex-1 text-left overflow-hidden">

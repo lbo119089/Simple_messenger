@@ -32,18 +32,13 @@ export default function ChatPage() {
         router.push("/");
       } else {
         setUser(session.user);
-        fetchProfiles();
+        const { data } = await supabase.from('profiles').select('*');
+        setProfiles(data || []);
       }
       setLoading(false);
     };
     fetchSession();
   }, [router]);
-
-  const fetchProfiles = async () => {
-    const { data, error } = await supabase.from('profiles').select('*');
-    if (error) console.error(error);
-    else setProfiles(data);
-  };
 
   const conversations = useMemo(() => {
     if (!profiles || !user) return [];
@@ -52,7 +47,7 @@ export default function ChatPage() {
       .map(p => ({
         other_user: {
           id: p.id,
-          username: p.username || "알 수 없음",
+          username: p.username || "사용자",
           avatar_url: p.avatar_url || `https://picsum.photos/seed/${p.id}/200/200`,
         },
         last_message: { content: "대화를 시작해보세요.", created_at: new Date().toISOString() },
@@ -76,16 +71,25 @@ export default function ChatPage() {
 
     fetchMessages();
 
-    // Supabase Realtime Subscription
+    // 더 안정적인 실시간 구독: 해당 사용자와 관련된 메시지 전체를 감시하고 클라이언트에서 필터링
     const channel = supabase
-      .channel(`chat-${selectedUserId}`)
+      .channel(`realtime-messages-${selectedUserId}`)
       .on('postgres_changes', { 
         event: 'INSERT', 
         schema: 'public', 
-        table: 'messages',
-        filter: `sender_id=in.(${user.id},${selectedUserId}),receiver_id=in.(${user.id},${selectedUserId})`
+        table: 'messages'
       }, (payload) => {
-        setMessages((prev) => [...prev, payload.new]);
+        const newMessage = payload.new;
+        const isRelevant = 
+          (newMessage.sender_id === user.id && newMessage.receiver_id === selectedUserId) ||
+          (newMessage.sender_id === selectedUserId && newMessage.receiver_id === user.id);
+        
+        if (isRelevant) {
+          setMessages((prev) => {
+            if (prev.find(m => m.id === newMessage.id)) return prev;
+            return [...prev, newMessage];
+          });
+        }
       })
       .subscribe();
 
@@ -96,20 +100,24 @@ export default function ChatPage() {
 
   useEffect(() => {
     if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+      const scrollElement = scrollRef.current;
+      scrollElement.scrollTop = scrollElement.scrollHeight;
     }
   }, [messages]);
 
   const handleSendMessage = async (content: string) => {
-    if (!content.trim() || !selectedUserId || !user) return;
+    const text = content.trim();
+    if (!text || !selectedUserId || !user) return;
     
+    setInputValue(""); // 즉시 입력창 비우기 (Optimistic UI)
+
     const { error } = await supabase
       .from('messages')
       .insert([
         { 
           sender_id: user.id, 
           receiver_id: selectedUserId, 
-          content: content.trim() 
+          content: text 
         }
       ]);
 
@@ -119,8 +127,7 @@ export default function ChatPage() {
         title: "전송 실패",
         description: error.message,
       });
-    } else {
-      setInputValue("");
+      setInputValue(text); // 실패 시 입력값 복구
     }
   };
 
@@ -129,14 +136,15 @@ export default function ChatPage() {
     router.push("/");
   };
 
-  const selectedUser = conversations.find(c => c.other_user.id === selectedUserId)?.other_user;
+  const selectedConversation = conversations.find(c => c.other_user.id === selectedUserId);
+  const selectedUser = selectedConversation?.other_user;
 
   const aiMessageFormat = messages.slice(-5).map(m => ({
     sender: m.sender_id === user?.id ? "user" as const : "other" as const,
     content: m.content
   }));
 
-  if (loading) return <div className="flex h-screen items-center justify-center">로딩 중...</div>;
+  if (loading) return <div className="flex h-screen items-center justify-center bg-background">로딩 중...</div>;
 
   return (
     <div className="flex h-screen w-full bg-background overflow-hidden">
@@ -149,18 +157,18 @@ export default function ChatPage() {
       />
 
       <div className="flex-1 flex flex-col min-w-0">
-        {selectedUserId ? (
+        {selectedUserId && selectedUser ? (
           <>
             <header className="h-16 flex items-center justify-between px-6 bg-white border-b border-border z-10">
               <div className="flex items-center gap-3">
                 <Avatar className="h-10 w-10">
-                  <AvatarImage src={selectedUser?.avatar_url} />
+                  <AvatarImage src={selectedUser.avatar_url} />
                   <AvatarFallback className="bg-primary/10 text-primary">
-                    {selectedUser?.username[0].toUpperCase()}
+                    {selectedUser.username ? selectedUser.username[0].toUpperCase() : "?"}
                   </AvatarFallback>
                 </Avatar>
                 <div>
-                  <h2 className="font-bold text-lg leading-none">{selectedUser?.username}</h2>
+                  <h2 className="font-bold text-lg leading-none">{selectedUser.username}</h2>
                   <p className="text-xs text-green-500 mt-1 flex items-center gap-1">
                     <span className="h-1.5 w-1.5 rounded-full bg-green-500" />
                     현재 활동 중
@@ -232,9 +240,11 @@ export default function ChatPage() {
             <p className="text-muted-foreground max-w-xs">
               왼쪽 목록에서 대화를 선택하거나 새 대화를 시작하여 친구와 실시간으로 소통해보세요.
             </p>
-            <Button className="mt-8 bg-primary hover:bg-primary/90 px-8" onClick={() => setSelectedUserId(conversations[0]?.other_user?.id || null)}>
-              최근 대화 보기
-            </Button>
+            {conversations.length > 0 && (
+              <Button className="mt-8 bg-primary hover:bg-primary/90 px-8" onClick={() => setSelectedUserId(conversations[0]?.other_user?.id || null)}>
+                최근 대화 보기
+              </Button>
+            )}
           </div>
         )}
       </div>
