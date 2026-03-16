@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useState, useEffect, useRef, useMemo } from "react";
@@ -37,19 +38,35 @@ export default function ChatPage() {
     }
   }, [user, userLoading, isMounted, router, isLoggingOut]);
 
-  // 내 프로필 정보 가져오기
+  // 내 프로필 정보
   const currentUserDocRef = useMemo(() => {
     if (!db || !user) return null;
     return doc(db, "users", user.uid);
   }, [db, user]);
   const { data: currentUserProfile } = useDoc(currentUserDocRef);
 
+  // 전체 사용자 목록 (친구 추가용)
   const usersQuery = useMemo(() => {
     if (!db) return null;
     return query(collection(db, "users"));
   }, [db]);
-  const { data: usersData, isLoading: usersLoading } = useCollection(usersQuery);
+  const { data: allUsers, isLoading: usersLoading } = useCollection(usersQuery);
 
+  // 내 친구 목록 가져오기
+  const friendsQuery = useMemo(() => {
+    if (!db || !user) return null;
+    return query(collection(db, "users", user.uid, "friends"));
+  }, [db, user]);
+  const { data: friendsListData } = useCollection(friendsQuery);
+
+  // 실제 친구 객체들만 필터링
+  const friends = useMemo(() => {
+    if (!allUsers || !friendsListData) return [];
+    const friendIds = friendsListData.map((f: any) => f.id);
+    return allUsers.filter(u => friendIds.includes(u.id));
+  }, [allUsers, friendsListData]);
+
+  // 메시지 가져오기
   const messagesQuery = useMemo(() => {
     if (!db || !user || !selectedUserId) return null;
     return query(
@@ -60,11 +77,11 @@ export default function ChatPage() {
   
   const { data: rawMessages } = useCollection(messagesQuery);
 
+  // 클라이언트 측 메시지 필터링 및 정렬
   const messages = useMemo(() => {
-    if (!rawMessages || !selectedUserId) return [];
+    if (!rawMessages || !selectedUserId || !user) return [];
     
     const now = Date.now();
-
     return rawMessages
       .filter((msg: any) => 
         msg.participants && msg.participants.includes(selectedUserId)
@@ -74,7 +91,7 @@ export default function ChatPage() {
         const timeB = b.createdAt?.toMillis?.() || now;
         return timeA - timeB;
       });
-  }, [rawMessages, selectedUserId]);
+  }, [rawMessages, selectedUserId, user]);
 
   useEffect(() => {
     if (scrollRef.current) {
@@ -120,7 +137,6 @@ export default function ChatPage() {
     }
   };
 
-  // 사용자 정보가 없거나 로그아웃 중이면 채팅 UI를 보여주지 않음
   if (!isMounted || userLoading || usersLoading || !user || isLoggingOut) {
     return (
       <div className="flex h-screen items-center justify-center bg-background">
@@ -134,7 +150,7 @@ export default function ChatPage() {
     );
   }
 
-  const selectedUser = usersData?.find(u => u.id === selectedUserId);
+  const selectedUser = allUsers?.find(u => u.id === selectedUserId);
 
   const aiMessageFormat = messages.slice(-5).map((m: any) => ({
     sender: m.senderId === user?.uid ? "user" as const : "other" as const,
@@ -146,7 +162,8 @@ export default function ChatPage() {
       <ChatSidebar
         currentUserId={user?.uid || ""}
         currentUserProfile={currentUserProfile}
-        users={usersData || []}
+        allUsers={allUsers || []}
+        friends={friends}
         selectedUserId={selectedUserId}
         onSelectUser={setSelectedUserId}
         onLogout={handleLogout}
@@ -240,7 +257,7 @@ export default function ChatPage() {
             </div>
             <h2 className="text-2xl font-bold text-foreground mb-2">당신의 이야기를 시작하세요</h2>
             <p className="text-muted-foreground max-w-xs">
-              왼쪽 목록에서 대화를 선택하거나 친구의 이름을 검색하여 실시간으로 소통해보세요.
+              왼쪽 목록에서 친구를 추가하거나 대화를 선택하여 소통해보세요.
             </p>
           </div>
         )}
