@@ -11,12 +11,12 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Send, Info, MoreVertical, MessageSquarePlus, Loader2, Users, Search, X, ChevronUp, ChevronDown } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useAuth, useFirestore, useUser, useCollection, useDoc, useMemoFirebase } from "@/firebase";
-import { collection, query, where, addDoc, serverTimestamp, doc, orderBy, limit } from "firebase/firestore";
+import { collection, query, where, addDoc, serverTimestamp, doc, limit } from "firebase/firestore";
 import { signOut } from "firebase/auth";
 import { useToast } from "@/hooks/use-toast";
 
-const INITIAL_MESSAGE_LIMIT = 50;
-const LOAD_MORE_STEP = 30;
+const INITIAL_MESSAGE_LIMIT = 100; // 초기 로딩량을 넉넉히 설정
+const LOAD_MORE_STEP = 50;
 
 export default function ChatPage() {
   const router = useRouter();
@@ -49,6 +49,7 @@ export default function ChatPage() {
     }
   }, [user, userLoading, isMounted, router, isLoggingOut]);
 
+  // 대화방 변경 시 상태 초기화
   useEffect(() => {
     setMessageLimit(INITIAL_MESSAGE_LIMIT);
     setIsInitialLoad(true);
@@ -96,15 +97,14 @@ export default function ChatPage() {
     }
   }, [selectedChat, allUsers, userGroups]);
 
-  // 안정적인 쿼리: 사용자가 참여한 모든 메시지를 가져와서 클라이언트에서 필터링
+  // 쿼리 단순화: 인덱스 오류를 피하기 위해 orderBy를 제거하고 participants 필터만 사용
   const messagesQuery = useMemoFirebase(() => {
     if (!db || !user || !selectedChat) return null;
     
-    // 복잡한 index 에러를 방지하기 위해 participants 기반으로만 쿼리하고 limit 적용
+    // participants 필터링만 수행하여 인덱스 없이도 즉시 데이터가 나오도록 함
     return query(
       collection(db, "messages"),
       where("participants", "array-contains", user.uid),
-      orderBy("createdAt", "desc"),
       limit(messageLimit)
     );
   }, [db, user, selectedChat, messageLimit]);
@@ -125,14 +125,15 @@ export default function ChatPage() {
       }
     });
 
-    // 시간순 정렬
+    // 클라이언트 측 정렬 (Firestore 인덱스 오류 방지)
     return [...filtered].sort((a: any, b: any) => {
-      const timeA = a.createdAt?.toMillis?.() || 0;
-      const timeB = b.createdAt?.toMillis?.() || 0;
+      const timeA = a.createdAt?.toMillis?.() || a.createdAt?.seconds * 1000 || 0;
+      const timeB = b.createdAt?.toMillis?.() || b.createdAt?.seconds * 1000 || 0;
       return timeA - timeB;
     });
   }, [rawMessages, selectedChat]);
 
+  // 스크롤 감지를 통한 추가 로드
   useEffect(() => {
     if (!topObserverRef.current || messagesLoading) return;
 
@@ -150,6 +151,7 @@ export default function ChatPage() {
     return () => observer.disconnect();
   }, [rawMessages.length, messageLimit, messagesLoading]);
 
+  // 검색 기능
   const searchMatchIndices = useMemo(() => {
     if (!messageSearchQuery.trim() || !isSearchMode) return [];
     return allMessagesInChat
@@ -165,6 +167,7 @@ export default function ChatPage() {
     }
   }, [searchMatchIndices]);
 
+  // 초기 로딩 시 하단으로 자동 스크롤
   useEffect(() => {
     if (scrollRef.current && !isSearchMode && isInitialLoad && allMessagesInChat.length > 0) {
       scrollRef.current.scrollIntoView({ behavior: "auto" });
@@ -189,6 +192,7 @@ export default function ChatPage() {
 
       if (selectedChat.type === "group") {
         const group = userGroups?.find(g => g.id === selectedChat.id);
+        if (!group) return;
         messageData.groupId = selectedChat.id;
         messageData.participants = group.members;
       } else {
@@ -224,13 +228,9 @@ export default function ChatPage() {
 
   const navigateSearch = (direction: 'next' | 'prev') => {
     if (searchMatchIndices.length === 0) return;
-    
     setCurrentSearchMatchIndex(prev => {
-      if (direction === 'next') {
-        return (prev + 1) % searchMatchIndices.length;
-      } else {
-        return (prev - 1 + searchMatchIndices.length) % searchMatchIndices.length;
-      }
+      if (direction === 'next') return (prev + 1) % searchMatchIndices.length;
+      return (prev - 1 + searchMatchIndices.length) % searchMatchIndices.length;
     });
   };
 
@@ -240,7 +240,7 @@ export default function ChatPage() {
         <div className="flex flex-col items-center gap-4">
           <Loader2 className="h-10 w-10 text-primary animate-spin" />
           <p className="text-muted-foreground animate-pulse">
-            {isLoggingOut ? "로그아웃 중..." : "대화 불러오는 중..."}
+            {isLoggingOut ? "로그아웃 중..." : "데이터를 불러오는 중..."}
           </p>
         </div>
       </div>
@@ -276,7 +276,7 @@ export default function ChatPage() {
                     {selectedChat.type === "group" ? selectedInfo.name : selectedInfo.username}
                   </h2>
                   <p className="text-xs text-muted-foreground mt-1 truncate">
-                    {selectedChat.type === "group" ? `멤버 ${selectedInfo.members?.length}명` : "현재 활동 중"}
+                    {selectedChat.type === "group" ? `멤버 ${selectedInfo.members?.length}명` : "활동 중"}
                   </p>
                 </div>
               </div>
@@ -312,33 +312,10 @@ export default function ChatPage() {
                       </div>
                     )}
                   </div>
-                  
                   <div className="flex items-center gap-1">
-                    <Button 
-                      variant="outline" 
-                      size="icon" 
-                      className="h-10 w-10 bg-white"
-                      disabled={searchMatchIndices.length === 0}
-                      onClick={() => navigateSearch('prev')}
-                    >
-                      <ChevronUp className="h-4 w-4" />
-                    </Button>
-                    <Button 
-                      variant="outline" 
-                      size="icon" 
-                      className="h-10 w-10 bg-white"
-                      disabled={searchMatchIndices.length === 0}
-                      onClick={() => navigateSearch('next')}
-                    >
-                      <ChevronDown className="h-4 w-4" />
-                    </Button>
-                    <Button 
-                      variant="ghost" 
-                      size="sm" 
-                      onClick={() => { setIsSearchMode(false); setMessageSearchQuery(""); setCurrentSearchMatchIndex(-1); }}
-                    >
-                      <X className="h-4 w-4 mr-1" /> 닫기
-                    </Button>
+                    <Button variant="outline" size="icon" className="h-10 w-10 bg-white" disabled={searchMatchIndices.length === 0} onClick={() => navigateSearch('prev')}><ChevronUp className="h-4 w-4" /></Button>
+                    <Button variant="outline" size="icon" className="h-10 w-10 bg-white" disabled={searchMatchIndices.length === 0} onClick={() => navigateSearch('next')}><ChevronDown className="h-4 w-4" /></Button>
+                    <Button variant="ghost" size="sm" onClick={() => { setIsSearchMode(false); setMessageSearchQuery(""); }}> <X className="h-4 w-4 mr-1" /> 닫기</Button>
                   </div>
                 </div>
               </div>
@@ -347,9 +324,7 @@ export default function ChatPage() {
             <ScrollArea className="flex-1 p-6 custom-scrollbar">
               <div className="flex flex-col gap-1 max-w-4xl mx-auto">
                 <div ref={topObserverRef} className="h-10 flex items-center justify-center">
-                   {rawMessages.length >= messageLimit && (
-                     <Loader2 className="h-4 w-4 animate-spin text-muted-foreground opacity-50" />
-                   )}
+                   {messagesLoading && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground opacity-50" />}
                 </div>
 
                 {allMessagesInChat.length === 0 && !messagesLoading ? (
@@ -360,7 +335,7 @@ export default function ChatPage() {
                 ) : (
                   allMessagesInChat.map((msg: any, index: number) => (
                     <MessageBubble
-                      key={msg.id}
+                      key={msg.id || index}
                       id={`msg-${index}`}
                       content={msg.content}
                       timestamp={msg.createdAt?.toDate ? msg.createdAt.toDate().toISOString() : new Date().toISOString()}
@@ -370,11 +345,6 @@ export default function ChatPage() {
                       isHighlighted={isSearchMode && currentSearchMatchIndex !== -1 && searchMatchIndices[currentSearchMatchIndex] === index}
                     />
                   ))
-                )}
-                {messagesLoading && allMessagesInChat.length === 0 && (
-                  <div className="flex justify-center p-10">
-                    <Loader2 className="h-6 w-6 animate-spin text-primary opacity-50" />
-                  </div>
                 )}
                 <div ref={scrollRef} />
               </div>
